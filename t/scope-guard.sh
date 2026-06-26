@@ -48,6 +48,21 @@ mkdir -p "$SCRATCH"
 	echo "  $XAIAPI"
 } > "$SCRATCH/scope-manifest.txt"
 
+{
+	echo "in_scope_commits (deliverable git history only):"
+	for repo in "$GROKAPI" "$XAIAPI"; do
+		echo "=== $repo ==="
+		git -C "$repo" log --oneline -15 2>/dev/null || true
+	done
+	echo ""
+	echo "in_scope_tracked_files:"
+	for repo in "$GROKAPI" "$XAIAPI"; do
+		echo "=== $repo ==="
+		git -C "$repo" ls-files 2>/dev/null | head -50
+		echo "  ... ($(git -C "$repo" ls-files 2>/dev/null | wc -l) total)"
+	done
+} > "$SCRATCH/in-scope-commits.out"
+
 # Optional: flag implementer-created docs under ~/.grok/docs newer than goal start.
 GOAL_START_EPOCH="${GROK_GOAL_START_EPOCH:-0}"
 DOCS_DIR="$HOME_DIR/.grok/docs"
