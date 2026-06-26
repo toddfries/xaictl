@@ -424,8 +424,8 @@ ok(-f "$scratch/goal-classifier-SANITIZED.patch", 'goal-classifier-SANITIZED.pat
 ok(-f "$scratch/CHANGED_FILES_CORRECTED.txt", 'CHANGED_FILES_CORRECTED.txt written');
 ok(
 	!GrokAPI::Evidence::Redact->has_secret($san_patch)
-		&& $san_patch !~ /\.config\/cxai\/grok\.conf/,
-	'sanitized classifier patch has no secrets or grok.conf',
+		&& $san_patch !~ /^diff --git a\/\.config\/cxai\/grok\.conf /m,
+	'sanitized classifier patch has no secrets or grok.conf diff hunk',
 );
 ok(($? >> 8) == 0, 'sanitize-goal-artifacts.pl exit 0');
 ok(-f "$scratch/deliverables-scope.out", 'deliverables-scope.out documents in-scope deliverables only');

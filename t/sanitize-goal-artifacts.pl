@@ -45,7 +45,7 @@ my ($in_scope, $out_scope) = $class->classify_patch_paths($raw_patch);
 write_file('CHANGED_FILES_CORRECTED.txt', join("\n",
 	'# Deliverable paths only (git/sw/grokapi + git/sw/xAI-API)',
 	'',
-	(map { "  $_" } @{$class->git_deliverable_files(repos => [$grokapi, $xaiapi])}),
+	(map { "  $_" } $class->git_deliverable_files(repos => [$grokapi, $xaiapi])),
 	'',
 	'# In-scope paths present in latest classifier patch:',
 	(map { "  $_" } @{$in_scope}),
