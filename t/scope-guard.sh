@@ -81,6 +81,21 @@ mkdir -p "$SCRATCH"
 	echo "  never commit or capture ~/.config/cxai/grok.conf in goal artifacts."
 } > "$SCRATCH/classifier-scope.out"
 
+{
+	echo "DELIVERABLES (in-scope git commits only):"
+	echo "  $GROKAPI"
+	echo "  $XAIAPI"
+	echo ""
+	echo "NOT DELIVERABLES (harness/runtime; ignore in goal patch/CHANGED_FILES):"
+	echo "  $HOME_DIR/.playground/state.json"
+	echo "  $HOME_DIR/.grok/active_sessions.json"
+	echo "  $HOME_DIR/.config/cxai/grok.conf"
+	echo "  $HOME_DIR/.grok/docs/"
+	echo ""
+	echo "NOTE: credentials via XAI_API_KEY / XAI_MANAGEMENT_API_KEY env at verify time;"
+	echo "  never commit or capture ~/.config/cxai/grok.conf in goal artifacts."
+} > "$SCRATCH/deliverables-scope.out"
+
 # Optional: flag implementer-created docs under ~/.grok/docs newer than goal start.
 GOAL_START_EPOCH="${GROK_GOAL_START_EPOCH:-0}"
 DOCS_DIR="$HOME_DIR/.grok/docs"
