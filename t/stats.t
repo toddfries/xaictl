@@ -6,8 +6,10 @@ use Test::More tests => 14;
 
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
+use lib "$Bin/../../xAI-API/lib";
 
 use GrokAPI::Stats;
+use xAI::API;
 
 my $class = 'GrokAPI::Stats';
 

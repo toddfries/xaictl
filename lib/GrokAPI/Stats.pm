@@ -80,37 +80,8 @@ sub format_totals {
 
 sub response_text {
 	my ($class, $res) = @_;
-	return '' unless defined $res && ref $res eq 'HASH';
-
-	if (defined $res->{choices} && ref $res->{choices} eq 'ARRAY') {
-		my @parts;
-		for my $choice (@{$res->{choices}}) {
-			next unless defined $choice && ref $choice eq 'HASH';
-			my $msg = $choice->{message};
-			next unless defined $msg && ref $msg eq 'HASH';
-			push @parts, $msg->{content} if defined $msg->{content};
-		}
-		return join("\n", @parts) if @parts;
-	}
-
-	if (defined $res->{output} && ref $res->{output} eq 'ARRAY') {
-		my @parts;
-		for my $item (@{$res->{output}}) {
-			next unless defined $item && ref $item eq 'HASH';
-			next unless ($item->{type} // '') eq 'message';
-			my $content = $item->{content};
-			next unless defined $content && ref $content eq 'ARRAY';
-			for my $block (@{$content}) {
-				next unless defined $block && ref $block eq 'HASH';
-				if (($block->{type} // '') eq 'output_text' && defined $block->{text}) {
-					push @parts, $block->{text};
-				}
-			}
-		}
-		return join("\n", @parts) if @parts;
-	}
-
-	return '';
+	require xAI::API;
+	return xAI::API->response_text($res);
 }
 
 1;

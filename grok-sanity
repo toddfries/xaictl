@@ -207,8 +207,8 @@ sub resolve_team_id {
 sub print_limits_note {
 	print "\n--- Rate limits / SuperGrok context ---\n";
 	print "Per-key QPS/QPM/TPM limits are set in console.x.ai (not returned by /api-key).\n";
-	print "SuperGrok consumer quotas (chat/images on grok.com) are console-only.\n";
-	print "Grok Build session cost is best tracked by summing per-request cost_usd here.\n";
+	print "SuperGrok/Grok Build consumer quotas (e.g. 90% usage emails) are NOT in this API.\n";
+	print "This tool tracks developer API spend (per-request cost_usd + management billing).\n";
 	print "API tier docs: https://docs.x.ai/developers/rate-limits\n";
 }
 
@@ -319,13 +319,16 @@ sub run_balance {
 				$prev->{billingCycle}{month} // 0;
 		}
 		printf "effective_spending_limit_cents: %s\n", $prev->{effectiveSpendingLimit} // '(undef)';
-		if (defined $prev->{coreInvoice}{prepaidCredits}) {
-			my $usd = xAI::API->cents_val_to_usd($prev->{coreInvoice}{prepaidCredits});
-			printf "prepaid_credits_usd: \$%.2f\n", $usd // 0;
-		}
-		if (defined $prev->{coreInvoice}{prepaidCreditsUsed}) {
-			my $usd = xAI::API->cents_val_to_usd($prev->{coreInvoice}{prepaidCreditsUsed});
-			printf "prepaid_credits_used_usd: \$%.2f\n", $usd // 0;
+		my $invoice = $prev->{coreInvoice};
+		if (defined $invoice && ref $invoice eq 'HASH') {
+			if (defined $invoice->{prepaidCredits}) {
+				my $usd = xAI::API->cents_val_to_usd($invoice->{prepaidCredits});
+				printf "prepaid_credits_usd: \$%.2f\n", $usd // 0;
+			}
+			if (defined $invoice->{prepaidCreditsUsed}) {
+				my $usd = xAI::API->cents_val_to_usd($invoice->{prepaidCreditsUsed});
+				printf "prepaid_credits_used_usd: \$%.2f\n", $usd // 0;
+			}
 		}
 	}
 
