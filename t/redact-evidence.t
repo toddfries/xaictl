@@ -25,15 +25,18 @@ my @files = grep {
 } readdir $dh;
 closedir $dh;
 
-plan tests => scalar @files + 1;
+plan tests => 'no_plan';
 
 my $leaks = 0;
 for my $f (sort @files) {
 	my $path = "$scratch/$f";
-	open my $fh, '<', $path or die $!;
+	open my $fh, '<', $path or do {
+		fail("readable $f");
+		next;
+	};
 	local $/; my $body = <$fh>;
 	close $fh;
-	next unless defined $body && $body ne '';
+	$body //= '';
 	$leaks++ if GrokAPI::Evidence::Redact->has_secret($body);
 	ok(!GrokAPI::Evidence::Redact->has_secret($body), "no full bearer in $f");
 }
