@@ -68,12 +68,4 @@ my $lim_out = $class->format_limits(
 );
 like($lim_out, qr/softSl:.*usd=\$200\.00/, 'limits softSl');
 
-# capture for verification step 5
-my $scratch = $ENV{GROK_GOAL_SCRATCH} // '/tmp/grok-goal-a7d760d85190/implementer';
-if (-d $scratch) {
-	open my $fh, '>', "$scratch/management-report.t.out" or die $!;
-	print $fh $bal_out, "\n---\n", $usage_out, "\n---\n", $lim_out;
-	close $fh;
-}
-
 done_testing();

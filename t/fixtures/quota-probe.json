@@ -1,0 +1,36 @@
+{
+  "description": "Canned xAI consumer-quota probe results (no public SuperGrok % API)",
+  "probed_at": "2026-06-26",
+  "endpoints": [
+    {
+      "url": "https://api.x.ai/v1/api-key",
+      "status": 401,
+      "note": "unauthenticated without bearer"
+    },
+    {
+      "url": "https://auth.x.ai/v1/user/usage",
+      "status": 404
+    },
+    {
+      "url": "https://auth.x.ai/v1/user/quota",
+      "status": 404
+    },
+    {
+      "url": "https://api.x.ai/v1/user/subscription",
+      "status": 404
+    },
+    {
+      "url": "https://console.x.ai/api/usage",
+      "status": 404
+    },
+    {
+      "url": "https://console.x.ai/api/billing/balance",
+      "status": 404
+    },
+    {
+      "url": "https://api.x.ai/v1/billing/teams/TEAM_ID/prepaid/balance",
+      "status": 404,
+      "note": "inference key cannot reach management billing on api.x.ai"
+    }
+  ]
+}

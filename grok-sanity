@@ -77,7 +77,7 @@ my $mgmt_key = $opt_mgmt_key // GrokAPI::Config->management_key(
 	config => $conf, mgmt_section => $opt_mgmt_sec,
 );
 
-if ($opt_action =~ /^(keyinfo|query|session|status)$/) {
+if ($opt_action =~ /^(keyinfo|query|session)$/) {
 	die "No bearer token: set XAI_API_KEY or add bearer= to [$opt_section] in $opt_config\n"
 		unless defined $bearer && $bearer ne '';
 }
@@ -108,14 +108,8 @@ elsif ($opt_action eq 'limits') {
 elsif ($opt_action eq 'buildlog') {
 	run_buildlog();
 }
-elsif ($opt_action eq 'sessions') {
-	run_sessions();
-}
 elsif ($opt_action eq 'signals') {
 	run_signals();
-}
-elsif ($opt_action eq 'status') {
-	run_status($bearer);
 }
 else {
 	die "Unknown action '$opt_action'\n";
@@ -136,9 +130,7 @@ Actions:
   usage     Usage analytics summary for current month (management key)
   limits    Postpaid spending limits (management key)
   buildlog  Sum Grok Build harness tokens from ~/.grok/logs/unified.jsonl
-  sessions  List all Grok Build sessions with per-session token totals
   signals   Grok Build harness context usage % from session signals.json
-  status    keyinfo + buildlog + signals for one session (default: --current)
 
 Options:
   -a, --action ACTION     Action to run (default: help)
@@ -296,23 +288,6 @@ sub run_session {
 	print GrokAPI::Management::Report->format_limits_note();
 }
 
-sub run_status {
-	my ($bearer) = @_;
-	$opt_current = 1 unless defined $opt_session_id && $opt_session_id ne '';
-	my $session_id = resolve_session_id();
-	die "status requires -S <session_id> or --current\n"
-		unless defined $session_id && $session_id ne '';
-
-	run_keyinfo($bearer) if defined $bearer && $bearer ne '';
-	print "\n" if defined $bearer && $bearer ne '';
-
-	$opt_session_id = $session_id;
-	run_buildlog();
-	print "\n";
-	$opt_session_id = $session_id;
-	run_signals();
-}
-
 sub run_signals {
 	my $session_id = resolve_session_id();
 	die "signals requires -S <session_id> or --current\n"
@@ -335,14 +310,6 @@ sub resolve_session_id {
 			unless defined $session_id && $session_id ne '';
 	}
 	return $session_id;
-}
-
-sub run_sessions {
-	my $log_path = $opt_log_file // GrokAPI::BuildLog->default_log_path();
-	my ($ordered, $sessions) = GrokAPI::BuildLog->scan_all_sessions(log_path => $log_path);
-	printf "log_file: %s\n\n", $log_path;
-	print GrokAPI::BuildLog->format_sessions_table($ordered, $sessions), "\n";
-	print GrokAPI::Management::Report->format_limits_note();
 }
 
 sub run_buildlog {
