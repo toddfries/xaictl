@@ -3,12 +3,23 @@ package GrokAPI::TeamContext;
 use strict;
 use warnings;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
+
+our $UUID_RE = qr/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/i;
+
+sub is_valid_team_id {
+	my ($class, $team_id) = @_;
+	return defined $team_id && $team_id ne '' && $team_id =~ $UUID_RE;
+}
 
 sub team_id_for_mgmt {
 	my ($class, %args) = @_;
 	my $explicit = $args{explicit};
-	return $explicit if defined $explicit && $explicit ne '';
+	if (defined $explicit && $explicit ne '') {
+		die "team_id invalid UUID format (not calling management API): $explicit\n"
+			unless $class->is_valid_team_id($explicit);
+		return $explicit;
+	}
 
 	my $bearer     = $args{bearer};
 	my $keyinfo_cb = $args{keyinfo_cb};

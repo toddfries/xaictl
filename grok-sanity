@@ -30,6 +30,7 @@ use GrokAPI::BuildLog;
 use GrokAPI::Harness::Signals;
 use GrokAPI::TeamContext;
 use GrokAPI::Management::Report;
+use GrokAPI::Management::Probe;
 
 my $opt_action   = 'help';
 my $opt_config   = GrokAPI::Config->default_config_path();
@@ -82,7 +83,7 @@ if ($opt_action =~ /^(keyinfo|query|session)$/) {
 		unless defined $bearer && $bearer ne '';
 }
 
-if ($opt_action =~ /^(balance|usage|limits)$/) {
+if ($opt_action =~ /^(balance|usage|limits|mgmt-probe)$/) {
 	die "No management key: set XAI_MANAGEMENT_API_KEY or add management_key= to [$opt_mgmt_sec] in $opt_config\n"
 		unless defined $mgmt_key && $mgmt_key ne '';
 }
@@ -104,6 +105,9 @@ elsif ($opt_action eq 'usage') {
 }
 elsif ($opt_action eq 'limits') {
 	run_limits($mgmt_key, $bearer);
+}
+elsif ($opt_action eq 'mgmt-probe') {
+	run_mgmt_probe($mgmt_key, $bearer);
 }
 elsif ($opt_action eq 'buildlog') {
 	run_buildlog();
@@ -129,6 +133,7 @@ Actions:
   balance   Prepaid credit balance (requires management key + team_id)
   usage     Usage analytics summary for current month (management key)
   limits    Postpaid spending limits (management key)
+  mgmt-probe  Readonly audit of management API endpoints (GET only)
   buildlog  Sum Grok Build harness tokens from ~/.grok/logs/unified.jsonl
   signals   Grok Build harness context usage % from session signals.json
 
@@ -338,6 +343,19 @@ sub run_buildlog {
 	}
 	print "\n", GrokAPI::BuildLog->format_totals($totals), "\n";
 	print GrokAPI::Management::Report->format_limits_note();
+}
+
+sub run_mgmt_probe {
+	my ($mgmt_key, $bearer) = @_;
+	my $team_id = team_id_for_mgmt($bearer);
+	my $api     = make_management_api($mgmt_key);
+	my $results = GrokAPI::Management::Probe->probe_readonly(
+		api     => $api,
+		team_id => $team_id,
+	);
+	print GrokAPI::Management::Probe->format_report(
+		$results, team_id => $team_id,
+	);
 }
 
 sub run_balance {
