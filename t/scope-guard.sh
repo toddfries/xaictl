@@ -96,6 +96,17 @@ mkdir -p "$SCRATCH"
 	echo "  never commit or capture ~/.config/cxai/grok.conf in goal artifacts."
 } > "$SCRATCH/deliverables-scope.out"
 
+{
+	echo "CONFIG_SCOPE: ~/.config/cxai/grok.conf is a user credential store."
+	echo "  NOT a deliverable. verify-plan.pl never reads it."
+	echo "  Harness CHANGED_FILES/patch may list it; use CHANGED_FILES_CORRECTED.txt instead."
+	if [ -f "$HOME_DIR/.config/cxai/grok.conf" ]; then
+		echo "  present: yes (mtime $(stat -c %y "$HOME_DIR/.config/cxai/grok.conf" 2>/dev/null || echo unknown))"
+	else
+		echo "  present: no"
+	fi
+} > "$SCRATCH/config-scope.out"
+
 # Optional: flag implementer-created docs under ~/.grok/docs newer than goal start.
 GOAL_START_EPOCH="${GROK_GOAL_START_EPOCH:-0}"
 DOCS_DIR="$HOME_DIR/.grok/docs"

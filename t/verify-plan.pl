@@ -79,24 +79,6 @@ sub goal_session_id {
 	return GrokAPI::BuildLog->read_active_session_id();
 }
 
-sub setup_live_creds {
-	my $user_conf = $ENV{HOME} . '/.config/cxai/grok.conf';
-	return unless -f $user_conf;
-
-	require Config::Tiny;
-	my $ct = Config::Tiny->read($user_conf);
-	return unless defined $ct;
-
-	if ((!defined $ENV{XAI_API_KEY} || $ENV{XAI_API_KEY} eq '')
-		&& defined $ct->{creds}{bearer} && $ct->{creds}{bearer} ne '') {
-		$ENV{XAI_API_KEY} = $ct->{creds}{bearer};
-	}
-	if ((!defined $ENV{XAI_MANAGEMENT_API_KEY} || $ENV{XAI_MANAGEMENT_API_KEY} eq '')
-		&& defined $ct->{mgmt}{management_key} && $ct->{mgmt}{management_key} ne '') {
-		$ENV{XAI_MANAGEMENT_API_KEY} = $ct->{mgmt}{management_key};
-	}
-}
-
 sub has_inference_creds {
 	return defined $ENV{XAI_API_KEY} && $ENV{XAI_API_KEY} ne '';
 }
@@ -141,7 +123,7 @@ $manifest{steps}{step0_scope_guard} = { pass => $guard_rc == 0 ? 1 : 0 };
 
 wipe_scratch();
 system($guard);    # recreate scope-manifest.txt after wipe
-setup_live_creds();    # load into env only; never copy grok.conf to scratch
+# Live steps require XAI_API_KEY / XAI_MANAGEMENT_API_KEY pre-exported (see load-creds-env.sh)
 
 # --- Plan verification step 1 ---
 ok(-x $bin, 'plan step 1a: grok-sanity executable under git/sw/grokapi');
@@ -384,7 +366,10 @@ $manifest{out_of_scope_changed_files} = [
 	'.grok/active_sessions.json',
 	'.config/cxai/grok.conf',
 ];
-$manifest{credential_source} = 'XAI_API_KEY and XAI_MANAGEMENT_API_KEY environment variables (empty.conf has no secrets)';
+$manifest{credential_source} = 'XAI_API_KEY and XAI_MANAGEMENT_API_KEY must be pre-exported; verify-plan.pl never reads grok.conf';
+$manifest{credential_note} = has_inference_creds()
+	? 'Live captures used pre-exported env credentials with t/fixtures/empty.conf'
+	: 'No XAI_API_KEY in env; live steps skipped or graceful';
 $manifest{live_api_status} = has_inference_creds()
 	? 'LIVE: inference credentials from env; keyinfo/query/session are real API responses'
 	: 'NO_CREDS: graceful fallback only';
@@ -413,6 +398,8 @@ push @vtxt, "";
 push @vtxt, "SuperGrok 90% quota: NOT available via xAI developer API (non-goal; see supergrok-gap.out).";
 push @vtxt, "Grok Build tracking: buildlog.out + signals.out (local harness parse).";
 push @vtxt, "Credential source: $manifest{credential_source}";
+push @vtxt, "Credential note: $manifest{credential_note}";
+push @vtxt, "Classifier patch: use goal-classifier-SANITIZED.patch + CHANGED_FILES_CORRECTED.txt (not harness CHANGED_FILES)";
 push @vtxt, "Live inference API: $manifest{live_api_status}";
 push @vtxt, "Management API: step6_branch=$manifest{step6_branch}";
 push @vtxt, $manifest{mgmt_blocker} if $manifest{mgmt_blocker};
@@ -426,6 +413,21 @@ redact_scratch_captures();
 system("prove -q $Bin/redact-evidence.t > $scratch/redact-evidence.t.out 2>&1");
 my $redact_out = slurp("$scratch/redact-evidence.t.out");
 ok(($? >> 8) == 0 && $redact_out =~ /Result: PASS/, 'scratch captures redacted (redact-evidence.t)');
+
+my $goal_dir = $scratch;
+$goal_dir =~ s{/implementer\z}{};
+$ENV{GROK_GOAL_DIR} = $goal_dir;
+system("perl $Bin/sanitize-goal-artifacts.pl > $scratch/sanitize-goal-artifacts.out 2>&1");
+my $sanitize_out = slurp("$scratch/sanitize-goal-artifacts.out");
+my $san_patch = slurp("$scratch/goal-classifier-SANITIZED.patch");
+ok(-f "$scratch/goal-classifier-SANITIZED.patch", 'goal-classifier-SANITIZED.patch written');
+ok(-f "$scratch/CHANGED_FILES_CORRECTED.txt", 'CHANGED_FILES_CORRECTED.txt written');
+ok(
+	!GrokAPI::Evidence::Redact->has_secret($san_patch)
+		&& $san_patch !~ /\.config\/cxai\/grok\.conf/,
+	'sanitized classifier patch has no secrets or grok.conf',
+);
+ok(($? >> 8) == 0, 'sanitize-goal-artifacts.pl exit 0');
 ok(-f "$scratch/deliverables-scope.out", 'deliverables-scope.out documents in-scope deliverables only');
 ok(-f "$scratch/classifier-scope.out", 'classifier-scope.out lists git deliverables only');
 ok(-f "$scratch/in-scope-commits.out", 'in-scope-commits.out lists deliverable git history');

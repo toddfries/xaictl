@@ -33,7 +33,7 @@ sub redact_dir {
 		next if $skip->{$ent};
 		my $path = "$dir/$ent";
 		next unless -f $path;
-		next unless $ent =~ /\.(?:out|txt|json|conf)\z/;
+		next unless $ent =~ /\.(?:out|txt|json|conf|patch)\z/;
 		open my $fh, '<', $path or next;
 		local $/; my $body = <$fh>;
 		close $fh;
