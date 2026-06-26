@@ -27,6 +27,7 @@ use xAI::API;
 use GrokAPI::Config;
 use GrokAPI::Stats;
 use GrokAPI::BuildLog;
+use GrokAPI::Harness::Signals;
 use GrokAPI::TeamContext;
 use GrokAPI::Management::Report;
 
@@ -107,6 +108,9 @@ elsif ($opt_action eq 'limits') {
 elsif ($opt_action eq 'buildlog') {
 	run_buildlog();
 }
+elsif ($opt_action eq 'signals') {
+	run_signals();
+}
 else {
 	die "Unknown action '$opt_action'\n";
 }
@@ -126,6 +130,7 @@ Actions:
   usage     Usage analytics summary for current month (management key)
   limits    Postpaid spending limits (management key)
   buildlog  Sum Grok Build harness tokens from ~/.grok/logs/unified.jsonl
+  signals   Grok Build harness context usage % from session signals.json
 
 Options:
   -a, --action ACTION     Action to run (default: help)
@@ -280,6 +285,25 @@ sub run_session {
 	}
 	print "\n=== Session summary ($n queries) ===\n";
 	print GrokAPI::Stats->format_totals($totals), "\n";
+	print GrokAPI::Management::Report->format_limits_note();
+}
+
+sub run_signals {
+	my $session_id = $opt_session_id;
+	if ($opt_current) {
+		$session_id = GrokAPI::BuildLog->read_active_session_id();
+		die "No active session; pass -S <session_id>\n"
+			unless defined $session_id && $session_id ne '';
+	}
+	die "signals requires -S <session_id> or --current\n"
+		unless defined $session_id && $session_id ne '';
+
+	my ($data, $path) = GrokAPI::Harness::Signals->read_signals($session_id);
+	die "No signals.json found for session $session_id\n" unless defined $data;
+
+	print GrokAPI::Harness::Signals->format_report(
+		$data, session_id => $session_id, path => $path,
+	);
 	print GrokAPI::Management::Report->format_limits_note();
 }
 
