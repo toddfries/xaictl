@@ -27,6 +27,8 @@ use xAI::API;
 use GrokAPI::Config;
 use GrokAPI::Stats;
 use GrokAPI::BuildLog;
+use GrokAPI::TeamContext;
+use GrokAPI::Management::Report;
 
 my $opt_action   = 'help';
 my $opt_config   = GrokAPI::Config->default_config_path();
@@ -97,10 +99,10 @@ elsif ($opt_action eq 'balance') {
 	run_balance($mgmt_key, $bearer);
 }
 elsif ($opt_action eq 'usage') {
-	run_usage($mgmt_key);
+	run_usage($mgmt_key, $bearer);
 }
 elsif ($opt_action eq 'limits') {
-	run_limits($mgmt_key);
+	run_limits($mgmt_key, $bearer);
 }
 elsif ($opt_action eq 'buildlog') {
 	run_buildlog();
@@ -120,22 +122,22 @@ Actions:
   keyinfo   Report API key state (team_id, acls, blocked/disabled flags)
   query     Run one Grok query and report per-call token/cost usage
   session   Run multiple queries in one invocation and report session totals
-  buildlog  Sum Grok Build harness token usage from ~/.grok/logs/unified.jsonl
   balance   Prepaid credit balance (requires management key + team_id)
   usage     Usage analytics summary for current month (management key)
-  limits    Postpaid spending limits and invoice preview (management key)
+  limits    Postpaid spending limits (management key)
+  buildlog  Sum Grok Build harness tokens from ~/.grok/logs/unified.jsonl
 
 Options:
   -a, --action ACTION     Action to run (default: help)
   -c, --config FILE       Config file (default: ~/.config/cxai/grok.conf)
   -s, --section SECTION   Config section for inference bearer (default: creds)
       --mgmt-section SEC  Config section for management key (default: mgmt)
-  -m, --model MODEL       Model for query/session (default: grok-4-1-fast-non-reasoning)
+  -m, --model MODEL       Model for query/session
   -M, --management KEY    Management API key (or XAI_MANAGEMENT_API_KEY)
   -T, --team-id ID        Team ID for management actions (else from keyinfo)
   -S, --session-id ID     Grok Build session id for buildlog (or --current)
-      --log-file PATH     unified.jsonl path (default: ~/.grok/logs/unified.jsonl)
-      --current           Use active session from ~/.grok/active_sessions.json
+      --log-file PATH     unified.jsonl path
+      --current           Active session from ~/.grok/active_sessions.json
   -Q, --query TEXT        Query text for query action
       --queries TEXT      Repeatable query text for session action
   -d, --debug             Verbose API debug output
@@ -145,19 +147,13 @@ Environment:
   XAI_API_KEY              Inference API bearer token
   XAI_MANAGEMENT_API_KEY   Management API key
 
-Notes on SuperGrok / Grok Build quotas:
-  Consumer SuperGrok limits (e.g. 90% emails, June 30 reset) are NOT in the
-  developer API. Use buildlog to sum Grok Build harness tokens per session;
-  use query/session for developer API cost_in_usd_ticks; use balance/usage
-  with a management key for team billing. See https://console.x.ai
-
 Examples:
   grok-sanity -a keyinfo
   grok-sanity -a query -Q "Say only hello."
   grok-sanity -a session --queries "Say hi." --queries "Say bye."
-  grok-sanity -a buildlog --current
   grok-sanity -a balance -T <team_id>
 EOF
+	print GrokAPI::Management::Report->format_limits_note();
 	exit($code // 0);
 }
 
@@ -209,23 +205,16 @@ sub make_management_api {
 	);
 }
 
-sub resolve_team_id {
+sub team_id_for_mgmt {
 	my ($bearer) = @_;
-	return $opt_team_id if defined $opt_team_id && $opt_team_id ne '';
-	die "team_id required (-T) or inference bearer needed to look up team_id via keyinfo\n"
-		unless defined $bearer && $bearer ne '';
-	my $api  = make_inference_api($bearer);
-	my $info = $api->keyinfo();
-	return $info->{team_id};
-}
-
-sub print_limits_note {
-	print "\n--- Rate limits / SuperGrok context ---\n";
-	print "Per-key QPS/QPM/TPM limits are set in console.x.ai (not returned by /api-key).\n";
-	print "SuperGrok/Grok Build consumer quotas (e.g. 90% usage emails) are NOT in this API.\n";
-	print "Grok Build per-session tokens: grok-sanity -a buildlog --current\n";
-	print "Developer API spend: per-request cost_usd; team billing needs management key.\n";
-	print "API tier docs: https://docs.x.ai/developers/rate-limits\n";
+	return GrokAPI::TeamContext->team_id_for_mgmt(
+		explicit   => $opt_team_id,
+		bearer     => $bearer,
+		keyinfo_cb => sub {
+			my $api  = make_inference_api($bearer);
+			return $api->keyinfo();
+		},
+	);
 }
 
 sub run_keyinfo {
@@ -247,7 +236,7 @@ sub run_keyinfo {
 	for my $field (qw(create_time modify_time modified_by)) {
 		printf "%-20s %s\n", $field . ':', $info->{$field} // '(undef)';
 	}
-	print_limits_note();
+	print GrokAPI::Management::Report->format_limits_note();
 }
 
 sub run_one_query {
@@ -258,9 +247,7 @@ sub run_one_query {
 	if ($@) {
 		my $err = $@;
 		$err =~ s/\s+\z//;
-		if ($err =~ /429/) {
-			die "Rate limit (429): $err\n";
-		}
+		die "Rate limit (429): $err\n" if $err =~ /429/;
 		die "Query failed: $err\n";
 	}
 	my $elapsed = tv_interval($start, [gettimeofday]);
@@ -271,7 +258,6 @@ sub run_one_query {
 	print "prompt: $query\n";
 	print "response: $text\n" if $text ne '';
 	print GrokAPI::Stats->format_usage($usage, 'usage'), "\n";
-
 	return $usage;
 }
 
@@ -279,31 +265,29 @@ sub run_query {
 	my ($bearer, $query) = @_;
 	my $api = make_inference_api($bearer);
 	run_one_query($api, $query, 1);
-	print_limits_note();
+	print GrokAPI::Management::Report->format_limits_note();
 }
 
 sub run_session {
 	my ($bearer, @queries) = @_;
 	my $api    = make_inference_api($bearer);
 	my $totals = GrokAPI::Stats->empty_totals();
-
 	my $n = 0;
 	for my $query (@queries) {
 		$n++;
 		my $usage = run_one_query($api, $query, $n);
 		GrokAPI::Stats->accumulate($totals, $usage);
 	}
-
 	print "\n=== Session summary ($n queries) ===\n";
 	print GrokAPI::Stats->format_totals($totals), "\n";
-	print_limits_note();
+	print GrokAPI::Management::Report->format_limits_note();
 }
 
 sub run_buildlog {
 	my $session_id = $opt_session_id;
 	if ($opt_current) {
 		$session_id = GrokAPI::BuildLog->read_active_session_id();
-		die "No active session in ~/.grok/active_sessions.json; pass -S <session_id>\n"
+		die "No active session; pass -S <session_id>\n"
 			unless defined $session_id && $session_id ne '';
 	}
 	die "buildlog requires -S <session_id> or --current\n"
@@ -311,15 +295,14 @@ sub run_buildlog {
 
 	my $log_path = $opt_log_file // GrokAPI::BuildLog->default_log_path();
 	my ($turns, $totals) = GrokAPI::BuildLog->scan_log(
-		log_path    => $log_path,
-		session_id  => $session_id,
+		log_path   => $log_path,
+		session_id => $session_id,
 	);
 
 	print "=== Grok Build session log ===\n";
 	printf "session_id: %s\n", $session_id;
 	printf "log_file:   %s\n", $log_path;
 	printf "turns:      %d\n", scalar @{$turns};
-
 	for my $rec (@{$turns}) {
 		my $ctx = $rec->{ctx};
 		printf "  turn %2d %s prompt=%d completion=%d cached=%d\n",
@@ -329,69 +312,26 @@ sub run_buildlog {
 			$ctx->{completion_tokens} // 0,
 			$ctx->{cached_prompt_tokens} // 0;
 	}
-
 	print "\n", GrokAPI::BuildLog->format_totals($totals), "\n";
-	print_limits_note();
+	print GrokAPI::Management::Report->format_limits_note();
 }
 
 sub run_balance {
 	my ($mgmt_key, $bearer) = @_;
-	my $team_id = resolve_team_id($bearer);
-	die "team_id required: pass -T or provide inference bearer for keyinfo lookup\n"
-		unless defined $team_id && $team_id ne '';
-
-	my $api  = make_management_api($mgmt_key);
-	my $bal  = $api->prepaid_balance($team_id);
-	my $prev = eval { $api->postpaid_preview($team_id); };
-
-	print "=== Prepaid balance (team $team_id) ===\n";
-	if (defined $bal->{total}) {
-		my $usd = xAI::API->cents_val_to_usd($bal->{total});
-		printf "prepaid_total_cents: %s\n", $bal->{total}{val} // '(undef)';
-		printf "prepaid_total_usd:   \$%.2f\n", $usd // 0;
-	}
-	if (defined $bal->{changes} && ref $bal->{changes} eq 'ARRAY') {
-		my $shown = @{$bal->{changes}} > 5 ? 5 : @{$bal->{changes}};
-		print "recent_changes (up to $shown):\n";
-		for my $i (0 .. $shown - 1) {
-			my $ch = $bal->{changes}[$i];
-			printf "  %s %s cents=%s\n",
-				$ch->{changeOrigin} // '?',
-				$ch->{createTime} // '?',
-				$ch->{amount}{val} // '?';
-		}
-	}
-
-	if ($prev && ref $prev eq 'HASH') {
-		print "\n=== Postpaid preview ===\n";
-		if (defined $prev->{billingCycle}) {
-			printf "billing_cycle: %04d-%02d\n",
-				$prev->{billingCycle}{year} // 0,
-				$prev->{billingCycle}{month} // 0;
-		}
-		printf "effective_spending_limit_cents: %s\n", $prev->{effectiveSpendingLimit} // '(undef)';
-		my $invoice = $prev->{coreInvoice};
-		if (defined $invoice && ref $invoice eq 'HASH') {
-			if (defined $invoice->{prepaidCredits}) {
-				my $usd = xAI::API->cents_val_to_usd($invoice->{prepaidCredits});
-				printf "prepaid_credits_usd: \$%.2f\n", $usd // 0;
-			}
-			if (defined $invoice->{prepaidCreditsUsed}) {
-				my $usd = xAI::API->cents_val_to_usd($invoice->{prepaidCreditsUsed});
-				printf "prepaid_credits_used_usd: \$%.2f\n", $usd // 0;
-			}
-		}
-	}
-
-	print_limits_note();
+	my $team_id = team_id_for_mgmt($bearer);
+	my $api     = make_management_api($mgmt_key);
+	my $bal     = $api->prepaid_balance($team_id);
+	my $prev    = eval { $api->postpaid_preview($team_id); };
+	print GrokAPI::Management::Report->format_balance(
+		team_id => $team_id,
+		balance => $bal,
+		preview => $prev,
+	);
 }
 
 sub run_usage {
-	my ($mgmt_key) = @_;
-	my $team_id = $opt_team_id;
-	die "team_id required for usage: pass -T <team_id>\n"
-		unless defined $team_id && $team_id ne '';
-
+	my ($mgmt_key, $bearer) = @_;
+	my $team_id = team_id_for_mgmt($bearer);
 	my ($sec, $min, $hour, $mday, $mon, $year) = localtime();
 	$year += 1900;
 	$mon  += 1;
@@ -406,52 +346,25 @@ sub run_usage {
 			timezone  => 'Etc/GMT',
 		},
 		timeUnit => 'TIME_UNIT_NONE',
-		values   => [
-			{ name => 'usd', aggregation => 'AGGREGATION_SUM' },
-		],
-		groupBy => ['description'],
-		filters => [],
+		values   => [ { name => 'usd', aggregation => 'AGGREGATION_SUM' } ],
+		groupBy  => ['description'],
+		filters  => [],
 	});
-
-	print "=== Usage analytics (team $team_id) ===\n";
-	printf "period: %s to %s (UTC)\n", $start, $end;
-
-	my $total_usd = 0;
-	if (defined $res->{timeSeries} && ref $res->{timeSeries} eq 'ARRAY') {
-		for my $series (@{$res->{timeSeries}}) {
-			my $label = (defined $series->{group} && @{$series->{group}})
-				? $series->{group}[0] : '(unknown)';
-			my $sum = 0;
-			if (defined $series->{dataPoints} && ref $series->{dataPoints} eq 'ARRAY') {
-				for my $dp (@{$series->{dataPoints}}) {
-					next unless defined $dp->{values} && ref $dp->{values} eq 'ARRAY';
-					$sum += $dp->{values}[0] // 0;
-				}
-			}
-			printf "  %-40s \$%.6f\n", $label, $sum;
-			$total_usd += $sum;
-		}
-	}
-	printf "total_usd_this_period: \$%.6f\n", $total_usd;
-	print_limits_note();
+	print GrokAPI::Management::Report->format_usage(
+		team_id   => $team_id,
+		start     => $start,
+		end       => $end,
+		analytics => $res,
+	);
 }
 
 sub run_limits {
-	my ($mgmt_key) = @_;
-	my $team_id = $opt_team_id;
-	die "team_id required for limits: pass -T <team_id>\n"
-		unless defined $team_id && $team_id ne '';
-
-	my $api = make_management_api($mgmt_key);
-	my $lim = $api->spending_limits($team_id);
-
-	print "=== Spending limits (team $team_id) ===\n";
-	my $sl = $lim->{spendingLimits} // {};
-	for my $field (qw(softSl effectiveSl hardSlAuto effectiveHardSl hardSlOverride)) {
-		next unless defined $sl->{$field};
-		my $usd = xAI::API->cents_val_to_usd($sl->{$field});
-		printf "%-20s cents=%s usd=\$%.2f\n",
-			$field . ':', $sl->{$field}{val} // '?', $usd // 0;
-	}
-	print_limits_note();
+	my ($mgmt_key, $bearer) = @_;
+	my $team_id = team_id_for_mgmt($bearer);
+	my $api     = make_management_api($mgmt_key);
+	my $lim     = $api->spending_limits($team_id);
+	print GrokAPI::Management::Report->format_limits(
+		team_id => $team_id,
+		limits  => $lim,
+	);
 }
