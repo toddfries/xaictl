@@ -1,0 +1,18 @@
+# Paths outside git/sw/grokapi and git/sw/xAI-API that must not be goal deliverables.
+# Lines starting with # are comments. Prefixes end with / for directories.
+
+# Must not exist (goal-created credential/runtime pollution)
+absent:.config/cxai/grok.conf
+
+# Must match workspace-baseline.json checksum (do not modify during goal)
+file:bin/myip
+
+# Directory trees: every file must match baseline checksums
+dir:.grok/docs/
+
+# Harness volatile: existence ok, checksum not enforced
+volatile:.grok/active_sessions.json
+volatile:.playground/state.json
+
+# Git repos outside deliverables: must stay clean
+git-clean:git/sw/zhc-research

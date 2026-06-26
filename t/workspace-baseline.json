@@ -1,0 +1,36 @@
+{
+   "absent" : [
+      ".config/cxai/grok.conf"
+   ],
+   "files" : {
+      ".grok/docs/user-guide/01-getting-started.md" : "8a9e5604c4ca13a432a71cc26338bb490d7442ab8249064381ffc8800b8e10f4",
+      ".grok/docs/user-guide/02-authentication.md" : "c4e4334564fe077951b8e17da173da3f072ec63b7439e2bf72ed12135eaff750",
+      ".grok/docs/user-guide/03-keyboard-shortcuts.md" : "a4fc56383654ba9b3182803c32cad449b11395a870f4dadc6cbdf40fbeb3a578",
+      ".grok/docs/user-guide/04-slash-commands.md" : "d60d041a3d371626607976afe4da8df36bf8128540a1fc7da95ee3c03068a86d",
+      ".grok/docs/user-guide/05-configuration.md" : "f27c480bc2b8be1cc67db605ed27f7ce4975a9822b07e1474a30e177a0403eb2",
+      ".grok/docs/user-guide/06-theming.md" : "df841b7849db63bd0a916c1c90258f0da3402c1a92ab12ad4f99f27c4dd213ec",
+      ".grok/docs/user-guide/07-mcp-servers.md" : "d75f86c0435167bf7d159c2082a3a75ba75ba9c65c2f4224fe71fb0fc15a27f8",
+      ".grok/docs/user-guide/08-skills.md" : "48f0ec8bf62e5fd9e64cba86c23d8c6856eb4b857968a34da83354cf05461c17",
+      ".grok/docs/user-guide/09-plugins.md" : "1cc004e4589910b7180b11fca582969ed5ef91c6b4e50b779114c0bda8ac6e48",
+      ".grok/docs/user-guide/10-hooks.md" : "7f71c90115cd5f123a369569bda7396a329d8fbb7abbcfde2f065d1cdb60436a",
+      ".grok/docs/user-guide/11-custom-models.md" : "6cafb165baac78a078a7abd1657cb26f573c8a571555fce3d4ba7e841f408896",
+      ".grok/docs/user-guide/12-project-rules.md" : "7d70fab81d79b5fb67dc4eb4f20386e613daaa736c3a495ee40f9631e6d1ed9a",
+      ".grok/docs/user-guide/13-memory.md" : "ea22d160d6112da577660dadf5d581e7a965e7c8149b7f5a7761df9b272503b5",
+      ".grok/docs/user-guide/14-headless-mode.md" : "8740df69aa5921d6138cfcd3fd180963c7e81e7db66ac4be610868550cf8b0ca",
+      ".grok/docs/user-guide/15-agent-mode.md" : "6398a37e86c720c80d1887b0e39f3274364149c19ae20ee7c5cdefd8216fbbe7",
+      ".grok/docs/user-guide/16-subagents.md" : "b73887a35ac96e1ddbb799e9d3e41a1dfc5dddf1933084237439e2e16913c75d",
+      ".grok/docs/user-guide/17-sessions.md" : "6b00a53278bee5f43111e800d0ffef26691974cd318c85eec9c9803f17db3e70",
+      ".grok/docs/user-guide/18-sandbox.md" : "7595d854ba706a78ed3a325d1b39eda1093d5d731a3ecc4448d11f60624d49d5",
+      ".grok/docs/user-guide/19-plan-mode.md" : "24b9306abdcf3647891e726e46d1136aaf148e5bf355e67911c94e8da0e9d883",
+      ".grok/docs/user-guide/20-background-tasks.md" : "89f21236706d0c9eaa1f6aa0beb1856830cc5ebdc486b7a8e00a5f0cb3fc63c3",
+      ".grok/docs/user-guide/21-terminal-support.md" : "ce66e93a98f3cbcc0d315e05b415ab163c3a247bea704814d160b1fa8c0439e5",
+      ".grok/docs/user-guide/22-permissions-and-safety.md" : "8ae145496a0f4c3179267a14eb46adc67d83c9ce19436e2f4ac45c09031501fc",
+      "bin/myip" : "dac5b81101d2740108a453b7fe384ccee8dfb7e56f802e104e4facde4a3ac82c"
+   },
+   "generated_at" : "Fri Jun 26 12:23:36 2026",
+   "home" : "/home/todd",
+   "volatile" : [
+      ".grok/active_sessions.json",
+      ".playground/state.json"
+   ]
+}

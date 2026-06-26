@@ -10,6 +10,9 @@ SCRATCH="$GROK_GOAL_SCRATCH"
 
 fail() { echo "scope-guard: $*" >&2; exit 1; }
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+perl "$SCRIPT_DIR/check-workspace-boundary.pl" || fail "workspace boundary violated"
+
 for repo in "$GROKAPI" "$XAIAPI"; do
 	[ -d "$repo/.git" ] || fail "not a git repo: $repo"
 	dirty=$(git -C "$repo" status --porcelain)
@@ -97,13 +100,12 @@ mkdir -p "$SCRATCH"
 } > "$SCRATCH/deliverables-scope.out"
 
 {
-	echo "CONFIG_SCOPE: ~/.config/cxai/grok.conf is a user credential store."
-	echo "  NOT a deliverable. verify-plan.pl never reads it."
-	echo "  Harness CHANGED_FILES/patch may list it; use CHANGED_FILES_CORRECTED.txt instead."
+	echo "CONFIG_SCOPE: ~/.config/cxai/grok.conf must stay absent during goal."
+	echo "  Use pre-exported XAI_API_KEY / XAI_MANAGEMENT_API_KEY for live evidence."
 	if [ -f "$HOME_DIR/.config/cxai/grok.conf" ]; then
-		echo "  present: yes (mtime $(stat -c %y "$HOME_DIR/.config/cxai/grok.conf" 2>/dev/null || echo unknown))"
+		echo "  present: yes (VIOLATION — remove before evidence)"
 	else
-		echo "  present: no"
+		echo "  present: no (ok)"
 	fi
 } > "$SCRATCH/config-scope.out"
 

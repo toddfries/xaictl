@@ -123,7 +123,7 @@ $manifest{steps}{step0_scope_guard} = { pass => $guard_rc == 0 ? 1 : 0 };
 
 wipe_scratch();
 system($guard);    # recreate scope-manifest.txt after wipe
-# Live steps require XAI_API_KEY / XAI_MANAGEMENT_API_KEY pre-exported (see load-creds-env.sh)
+# Live steps require XAI_API_KEY / XAI_MANAGEMENT_API_KEY pre-exported in environment.
 
 # --- Plan verification step 1 ---
 ok(-x $bin, 'plan step 1a: grok-sanity executable under git/sw/grokapi');
@@ -399,7 +399,6 @@ push @vtxt, "SuperGrok 90% quota: NOT available via xAI developer API (non-goal;
 push @vtxt, "Grok Build tracking: buildlog.out + signals.out (local harness parse).";
 push @vtxt, "Credential source: $manifest{credential_source}";
 push @vtxt, "Credential note: $manifest{credential_note}";
-push @vtxt, "Classifier patch: use goal-classifier-SANITIZED.patch + CHANGED_FILES_CORRECTED.txt (not harness CHANGED_FILES)";
 push @vtxt, "Live inference API: $manifest{live_api_status}";
 push @vtxt, "Management API: step6_branch=$manifest{step6_branch}";
 push @vtxt, $manifest{mgmt_blocker} if $manifest{mgmt_blocker};
@@ -414,20 +413,9 @@ system("prove -q $Bin/redact-evidence.t > $scratch/redact-evidence.t.out 2>&1");
 my $redact_out = slurp("$scratch/redact-evidence.t.out");
 ok(($? >> 8) == 0 && $redact_out =~ /Result: PASS/, 'scratch captures redacted (redact-evidence.t)');
 
-my $goal_dir = $scratch;
-$goal_dir =~ s{/implementer\z}{};
-$ENV{GROK_GOAL_DIR} = $goal_dir;
-system("perl $Bin/sanitize-goal-artifacts.pl > $scratch/sanitize-goal-artifacts.out 2>&1");
-my $sanitize_out = slurp("$scratch/sanitize-goal-artifacts.out");
-my $san_patch = slurp("$scratch/goal-classifier-SANITIZED.patch");
-ok(-f "$scratch/goal-classifier-SANITIZED.patch", 'goal-classifier-SANITIZED.patch written');
-ok(-f "$scratch/CHANGED_FILES_CORRECTED.txt", 'CHANGED_FILES_CORRECTED.txt written');
-ok(
-	!GrokAPI::Evidence::Redact->has_secret($san_patch)
-		&& $san_patch !~ /^diff --git a\/\.config\/cxai\/grok\.conf /m,
-	'sanitized classifier patch has no secrets or grok.conf diff hunk',
-);
-ok(($? >> 8) == 0, 'sanitize-goal-artifacts.pl exit 0');
+ok(-f "$scratch/config-scope.out", 'config-scope.out confirms grok.conf absent');
+my $cfg_scope = slurp("$scratch/config-scope.out");
+ok($cfg_scope =~ /present: no \(ok\)/, 'grok.conf not present on workspace');
 ok(-f "$scratch/deliverables-scope.out", 'deliverables-scope.out documents in-scope deliverables only');
 ok(-f "$scratch/classifier-scope.out", 'classifier-scope.out lists git deliverables only');
 ok(-f "$scratch/in-scope-commits.out", 'in-scope-commits.out lists deliverable git history');
