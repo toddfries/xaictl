@@ -35,6 +35,7 @@ sub wipe_scratch {
 	opendir my $dh, $scratch or die "cannot open $scratch: $!\n";
 	for my $ent (readdir $dh) {
 		next if $ent eq '.' || $ent eq '..';
+		next if $ent eq 'verify-plan.out';    # tee from run-evidence.sh keeps this open
 		my $path = "$scratch/$ent";
 		unlink $path or rmdir $path or system('rm', '-rf', $path) == 0
 			or die "cannot remove $path: $!\n";
