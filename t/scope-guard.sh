@@ -5,7 +5,8 @@ set -euo pipefail
 GROKAPI="${GROKAPI_ROOT:-/home/todd/git/sw/grokapi}"
 XAIAPI="${XAIAPI_ROOT:-/home/todd/git/sw/xAI-API}"
 HOME_DIR="${HOME:-/home/todd}"
-SCRATCH="${GROK_GOAL_SCRATCH:-/tmp/grok-goal-a7d760d85190/implementer}"
+: "${GROK_GOAL_SCRATCH:?Set GROK_GOAL_SCRATCH to the goal implementer scratch dir}"
+SCRATCH="$GROK_GOAL_SCRATCH"
 
 fail() { echo "scope-guard: $*" >&2; exit 1; }
 
@@ -62,6 +63,23 @@ mkdir -p "$SCRATCH"
 		echo "  ... ($(git -C "$repo" ls-files 2>/dev/null | wc -l) total)"
 	done
 } > "$SCRATCH/in-scope-commits.out"
+
+{
+	echo "DELIVERABLE_FILES_ONLY (goal classifier CHANGED_FILES must be limited to these git paths):"
+	for repo in "$GROKAPI" "$XAIAPI"; do
+		echo "=== $repo ==="
+		git -C "$repo" ls-files 2>/dev/null
+	done
+	echo ""
+	echo "EXCLUDED_FROM_DELIVERABLES (harness/runtime; must NOT appear in goal patch):"
+	echo "  $HOME_DIR/.config/cxai/grok.conf"
+	echo "  $HOME_DIR/.playground/state.json"
+	echo "  $HOME_DIR/.grok/active_sessions.json"
+	echo "  $HOME_DIR/.grok/docs/"
+	echo ""
+	echo "CREDENTIALS: use XAI_API_KEY / XAI_MANAGEMENT_API_KEY env at verify time;"
+	echo "  never commit or capture ~/.config/cxai/grok.conf in goal artifacts."
+} > "$SCRATCH/classifier-scope.out"
 
 # Optional: flag implementer-created docs under ~/.grok/docs newer than goal start.
 GOAL_START_EPOCH="${GROK_GOAL_START_EPOCH:-0}"

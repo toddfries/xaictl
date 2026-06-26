@@ -9,12 +9,16 @@ use JSON;
 
 use lib "$Bin/../lib";
 use GrokAPI::BuildLog;
+use GrokAPI::Evidence::Redact;
+
+die "GROK_GOAL_SCRATCH must be set to the goal implementer scratch dir\n"
+	unless defined $ENV{GROK_GOAL_SCRATCH} && $ENV{GROK_GOAL_SCRATCH} ne '';
 
 my $root    = "$Bin/..";
-my $scratch = $ENV{GROK_GOAL_SCRATCH} // '/tmp/grok-goal-a7d760d85190/implementer';
+my $scratch = $ENV{GROK_GOAL_SCRATCH};
 my $bin     = "$root/grok-sanity";
-my $conf    = $ENV{HOME} . '/.config/cxai/grok.conf';
 my $guard   = "$Bin/scope-guard.sh";
+my $empty_conf = "$Bin/fixtures/empty.conf";
 
 mkdir $scratch;
 
@@ -46,7 +50,8 @@ sub wipe_scratch {
 
 sub run_cmd {
 	my ($out, $err, @cmd) = @_;
-	my $shell = join ' ', map { quotemeta($_) } ($bin, @cmd);
+	my @full = ($bin, verify_cmd_base(), @cmd);
+	my $shell = join ' ', map { quotemeta($_) } @full;
 	if (defined $out) {
 		system("$shell > $scratch/$out 2> $scratch/$err");
 	} else {
@@ -74,24 +79,41 @@ sub goal_session_id {
 	return GrokAPI::BuildLog->read_active_session_id();
 }
 
-sub redact_text {
-	my ($text) = @_;
-	$text =~ s/(bearer\s*=\s*)xai-[A-Za-z0-9]+/$1xai-...REDACTED.../gi;
-	$text =~ s/xai-[A-Za-z0-9]{30,}/xai-...REDACTED.../g;
-	return $text;
+sub setup_live_creds {
+	my $user_conf = $ENV{HOME} . '/.config/cxai/grok.conf';
+	return unless -f $user_conf;
+
+	require Config::Tiny;
+	my $ct = Config::Tiny->read($user_conf);
+	return unless defined $ct;
+
+	if ((!defined $ENV{XAI_API_KEY} || $ENV{XAI_API_KEY} eq '')
+		&& defined $ct->{creds}{bearer} && $ct->{creds}{bearer} ne '') {
+		$ENV{XAI_API_KEY} = $ct->{creds}{bearer};
+	}
+	if ((!defined $ENV{XAI_MANAGEMENT_API_KEY} || $ENV{XAI_MANAGEMENT_API_KEY} eq '')
+		&& defined $ct->{mgmt}{management_key} && $ct->{mgmt}{management_key} ne '') {
+		$ENV{XAI_MANAGEMENT_API_KEY} = $ct->{mgmt}{management_key};
+	}
+}
+
+sub has_inference_creds {
+	return defined $ENV{XAI_API_KEY} && $ENV{XAI_API_KEY} ne '';
+}
+
+sub has_mgmt_creds {
+	return defined $ENV{XAI_MANAGEMENT_API_KEY} && $ENV{XAI_MANAGEMENT_API_KEY} ne '';
+}
+
+sub verify_cmd_base {
+	return ('-c', $empty_conf);
 }
 
 sub redact_scratch_captures {
-	opendir my $dh, $scratch or return;
-	for my $ent (readdir $dh) {
-		next unless $ent =~ /\.out\z/ && $ent ne 'verify-plan.out';
-		my $path = "$scratch/$ent";
-		my $body = slurp($path);
-		next if $body eq '';
-		my $clean = redact_text($body);
-		write_file($ent, $clean) if $clean ne $body;
-	}
-	closedir $dh;
+	GrokAPI::Evidence::Redact->redact_dir(
+		$scratch,
+		skip => { 'verify-plan.out' => 1 },
+	);
 }
 
 sub structure_keys {
@@ -119,6 +141,7 @@ $manifest{steps}{step0_scope_guard} = { pass => $guard_rc == 0 ? 1 : 0 };
 
 wipe_scratch();
 system($guard);    # recreate scope-manifest.txt after wipe
+setup_live_creds();    # load into env only; never copy grok.conf to scratch
 
 # --- Plan verification step 1 ---
 ok(-x $bin, 'plan step 1a: grok-sanity executable under git/sw/grokapi');
@@ -137,29 +160,33 @@ $manifest{steps}{step1_help} = {
 
 # --- Plan verification step 2 ---
 my $step2 = 0;
-if (-f $conf) {
-	run_cmd('keyinfo.out', 'keyinfo.err', '-c', $conf, '-s', 'creds', '-a', 'keyinfo');
+if (has_inference_creds()) {
+	run_cmd('keyinfo.out', 'keyinfo.err', '-a', 'keyinfo');
 	my $ki = slurp("$scratch/keyinfo.out");
 	$step2 = $ki =~ /team_id:/
 		&& $ki =~ /acls:/
 		&& $ki =~ /api_key_blocked:/
 		&& ($ki =~ /redacted_api_key:/ || $ki =~ /api_key_id:/)
-		&& $ki !~ /xai-[A-Za-z0-9]{30,}/;    # no full bearer in capture
+		&& !GrokAPI::Evidence::Redact->has_secret($ki);
 	ok($step2, 'plan step 2: keyinfo has team_id, acls, redacted key, blocked flags');
-	$manifest{steps}{step2_keyinfo} = { pass => $step2 ? 1 : 0, files => ['keyinfo.out'] };
+	$manifest{steps}{step2_keyinfo} = {
+		pass   => $step2 ? 1 : 0,
+		files  => ['keyinfo.out'],
+		branch => 'env_credentials',
+	};
 } else {
 	run_cmd('keyinfo.out', 'keyinfo.err', '-a', 'keyinfo');
 	my $ki = slurp("$scratch/keyinfo.out") . slurp("$scratch/keyinfo.err");
 	$step2 = $ki =~ /No bearer token/;
 	ok($step2, 'plan step 2: keyinfo graceful when no bearer token');
-	$manifest{steps}{step2_keyinfo} = { pass => $step2 ? 1 : 0, branch => 'no_config' };
+	$manifest{steps}{step2_keyinfo} = { pass => $step2 ? 1 : 0, branch => 'no_creds' };
 }
 
 # --- Plan verification step 3 ---
 my $step3 = 0;
-if (-f $conf) {
-	run_cmd('query.out', 'query.err', '-c', $conf, '-s', 'creds', '-a', 'query', '-Q', "Say only 'hello'.");
-	run_cmd('query2.out', 'query2.err', '-c', $conf, '-s', 'creds', '-a', 'query', '-Q', "Say only 'hello'.");
+if (has_inference_creds()) {
+	run_cmd('query.out', 'query.err', '-a', 'query', '-Q', "Say only 'hello'.");
+	run_cmd('query2.out', 'query2.err', '-a', 'query', '-Q', "Say only 'hello'.");
 	my $q  = slurp("$scratch/query.out");
 	my $q2 = slurp("$scratch/query2.out");
 	my $q_tokens  = extract_field($q, 'total_tokens');
@@ -178,8 +205,8 @@ if (-f $conf) {
 
 # --- Plan verification step 4 ---
 my $step4 = 0;
-if (-f $conf) {
-	run_cmd('session.out', 'session.err', '-c', $conf, '-s', 'creds', '-a', 'session',
+if (has_inference_creds()) {
+	run_cmd('session.out', 'session.err', '-a', 'session',
 		'--queries', "Say only 'one'.", '--queries', "Say only 'two'.");
 	my $s = slurp("$scratch/session.out");
 	my $single_tokens = extract_field($s, 'total_tokens');    # first query line
@@ -237,12 +264,7 @@ $manifest{steps}{step5_unit_and_source} = {
 };
 
 # --- Plan verification step 6 ---
-require Config::Tiny;
-my $has_mgmt = defined $ENV{XAI_MANAGEMENT_API_KEY} && $ENV{XAI_MANAGEMENT_API_KEY} ne '';
-if (!$has_mgmt && -f $conf) {
-	my $ct = Config::Tiny->read($conf);
-	$has_mgmt = defined $ct->{mgmt}{management_key} && $ct->{mgmt}{management_key} ne '';
-}
+my $has_mgmt = has_mgmt_creds();
 
 my $step6 = 0;
 if ($has_mgmt) {
@@ -269,7 +291,7 @@ if ($has_mgmt) {
 		&& !-f "$scratch/balance.out";
 	ok($step6, 'plan step 6 graceful: balance.err requires management key (no mgmt key in config)');
 	$manifest{step6_branch} = 'graceful';
-	$manifest{mgmt_blocker} = 'USER ACTION REQUIRED: add [mgmt] management_key to ~/.config/cxai/grok.conf (console.x.ai → Management Keys) for live balance.out';
+	$manifest{mgmt_blocker} = 'USER ACTION REQUIRED: set XAI_MANAGEMENT_API_KEY (console.x.ai → Management Keys) for live balance.out';
 	$manifest{steps}{step6_balance} = {
 		pass   => $step6 ? 1 : 0,
 		files  => ['balance.err', 'mgmt-blocker.out'],
@@ -278,15 +300,13 @@ if ($has_mgmt) {
 	write_file('mgmt-blocker.out', join "\n",
 		'Management API: NOT CONFIGURED',
 		'',
-		'Current state: no [mgmt] section in ~/.config/cxai/grok.conf',
-		'Inference API: LIVE (keyinfo/query/session captures use real bearer at runtime)',
+		'Current state: XAI_MANAGEMENT_API_KEY not set in environment',
+		'Inference API: LIVE when XAI_API_KEY set (verify uses env + empty.conf only)',
 		'',
 		'To obtain live balance.out / usage / limits:',
 		'  1. Generate management key at console.x.ai → Settings → Management Keys',
-		'  2. Add to ~/.config/cxai/grok.conf:',
-		'       [mgmt]',
-		'       management_key = xai-...',
-		'  3. Re-run: t/run-evidence.sh',
+		'  2. Export: export XAI_MANAGEMENT_API_KEY=xai-...',
+		'  3. Re-run: GROK_GOAL_SCRATCH=<dir> t/run-evidence.sh',
 		'',
 		'Step 6 graceful branch is the correct outcome until management key is added.',
 		'');
@@ -359,9 +379,10 @@ $manifest{out_of_scope_changed_files} = [
 	'.grok/active_sessions.json',
 	'.config/cxai/grok.conf',
 ];
-$manifest{live_api_status} = (-f $conf)
-	? 'LIVE: inference bearer in ~/.config/cxai/grok.conf; keyinfo/query/session captures are real API responses'
-	: 'NO_CONFIG: graceful fallback only';
+$manifest{credential_source} = 'XAI_API_KEY and XAI_MANAGEMENT_API_KEY environment variables (empty.conf has no secrets)';
+$manifest{live_api_status} = has_inference_creds()
+	? 'LIVE: inference credentials from env; keyinfo/query/session are real API responses'
+	: 'NO_CREDS: graceful fallback only';
 
 open my $mf, '>', "$scratch/evidence-manifest.json" or die $!;
 print $mf JSON::PP->new->pretty->canonical->encode(\%manifest);
@@ -386,17 +407,20 @@ push @vtxt, $manifest{mgmt_blocker} if $manifest{mgmt_blocker};
 push @vtxt, "";
 push @vtxt, "SuperGrok 90% quota: NOT available via xAI developer API (non-goal; see supergrok-gap.out).";
 push @vtxt, "Grok Build tracking: buildlog.out + signals.out (local harness parse).";
+push @vtxt, "Credential source: $manifest{credential_source}";
 push @vtxt, "Live inference API: $manifest{live_api_status}";
-push @vtxt, "Management API: step6_branch=$manifest{step6_branch} (graceful until user adds mgmt key)";
+push @vtxt, "Management API: step6_branch=$manifest{step6_branch}";
+push @vtxt, $manifest{mgmt_blocker} if $manifest{mgmt_blocker};
 push @vtxt, "";
-push @vtxt, "Deliverables: git/sw/grokapi + git/sw/xAI-API only (see deliverables-scope.out)";
-push @vtxt, "Out-of-scope CHANGED_FILES (harness/runtime, NOT implementer deliverables): "
+push @vtxt, "Deliverables: git/sw/grokapi + git/sw/xAI-API only (see classifier-scope.out)";
+push @vtxt, "Out-of-scope paths (harness CHANGED_FILES must NOT treat as deliverables): "
 	. join(', ', @{$manifest{out_of_scope_changed_files}});
 write_file('verification.txt', join("\n", @vtxt, ''));
 
 redact_scratch_captures();
 system("prove -q $Bin/redact-evidence.t >> $scratch/prove.out 2>&1");
 ok(-f "$scratch/deliverables-scope.out", 'deliverables-scope.out documents in-scope deliverables only');
+ok(-f "$scratch/classifier-scope.out", 'classifier-scope.out lists git deliverables only');
 ok(-f "$scratch/in-scope-commits.out", 'in-scope-commits.out lists deliverable git history');
 ok(-f "$scratch/supergrok-gap.out", 'supergrok-gap.out documents 90% quota API gap');
 ok(

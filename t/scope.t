@@ -2,14 +2,20 @@
 
 use strict;
 use warnings;
-use Test::More tests => 6;
+use Test::More;
 
-my $grokapi = '/home/todd/git/sw/grokapi';
-my $xaiapi  = '/home/todd/git/sw/xAI-API';
+my $grokapi = $ENV{GROKAPI_ROOT} // '/home/todd/git/sw/grokapi';
+my $xaiapi  = $ENV{XAIAPI_ROOT}  // '/home/todd/git/sw/xAI-API';
 
 sub ls_files {
 	my ($repo) = @_;
-	return split /\n/, `cd $repo && git ls-files 2>/dev/null`;
+	return split /\n/, `git -C $repo ls-files 2>/dev/null`;
+}
+
+sub slurp_file {
+	my ($path) = @_;
+	open my $fh, '<', $path or return '';
+	local $/; return <$fh>;
 }
 
 my @grok = ls_files($grokapi);
@@ -32,18 +38,25 @@ for my $repo ($grokapi, $xaiapi) {
 }
 is($secret_hits, 0, 'no full xAI bearer tokens in tracked git files');
 
-my $scratch = $ENV{GROK_GOAL_SCRATCH} // '/tmp/grok-goal-a7d760d85190/implementer';
-my $scope_manifest = "$scratch/scope-manifest.txt";
-ok(-f $scope_manifest, 'scope-manifest.txt exists from scope-guard');
-if (-f $scope_manifest) {
-	my $sm = slurp_file($scope_manifest);
-	like($sm, qr/out_of_scope_paths/, 'scope-manifest documents out-of-scope CHANGED_FILES');
-}
-
-sub slurp_file {
-	my ($path) = @_;
-	open my $fh, '<', $path or return '';
-	local $/; return <$fh>;
+my $scratch = $ENV{GROK_GOAL_SCRATCH};
+if ($scratch && -d $scratch) {
+	my $scope_manifest = "$scratch/scope-manifest.txt";
+	ok(-f $scope_manifest, 'scope-manifest.txt exists from scope-guard');
+	if (-f $scope_manifest) {
+		my $sm = slurp_file($scope_manifest);
+		like($sm, qr/out_of_scope_paths/, 'scope-manifest documents out-of-scope CHANGED_FILES');
+	}
+	my $classifier = "$scratch/classifier-scope.out";
+	ok(-f $classifier, 'classifier-scope.out lists deliverable git files only');
+	if (-f $classifier) {
+		my $cs = slurp_file($classifier);
+		like($cs, qr/DELIVERABLE_FILES_ONLY/, 'classifier-scope header');
+		like($cs, qr/EXCLUDED_FROM_DELIVERABLES/, 'classifier-scope exclusions');
+	}
+} else {
+	SKIP: {
+		skip 'GROK_GOAL_SCRATCH not set', 3;
+	}
 }
 
 done_testing();

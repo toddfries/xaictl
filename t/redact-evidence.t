@@ -5,40 +5,39 @@ use warnings;
 use Test::More;
 
 use FindBin qw($Bin);
+use lib "$Bin/../lib";
+
+use GrokAPI::Evidence::Redact;
 
 my $scratch = $ENV{GROK_GOAL_SCRATCH};
 unless ($scratch && -d $scratch) {
 	plan skip_all => 'GROK_GOAL_SCRATCH not set';
 }
 
-sub redact {
-	my ($text) = @_;
-	$text =~ s/(bearer\s*=\s*)xai-[A-Za-z0-9]+/$1xai-...REDACTED.../gi;
-	$text =~ s/xai-[A-Za-z0-9]{30,}/xai-...REDACTED.../g;
-	return $text;
-}
+GrokAPI::Evidence::Redact->redact_dir(
+	$scratch,
+	skip => { 'verify-plan.out' => 1 },
+);
 
 opendir my $dh, $scratch or die $!;
-my @outs = grep { /\.out\z/ && $_ ne 'verify-plan.out' } readdir $dh;
+my @files = grep {
+	$_ ne '.' && $_ ne '..' && $_ ne 'verify-plan.out' && -f "$scratch/$_"
+} readdir $dh;
 closedir $dh;
 
-plan tests => scalar @outs + 1;
+plan tests => scalar @files + 1;
 
 my $leaks = 0;
-for my $f (@outs) {
+for my $f (sort @files) {
 	my $path = "$scratch/$f";
-	my $body = do { open my $fh, '<', $path; local $/; <$fh> };
+	open my $fh, '<', $path or die $!;
+	local $/; my $body = <$fh>;
+	close $fh;
 	next unless defined $body && $body ne '';
-	my $clean = redact($body);
-	if ($clean ne $body) {
-		open my $wf, '>', $path or die $!;
-		print $wf $clean;
-		close $wf;
-	}
-	$leaks++ if $clean =~ /xai-[A-Za-z0-9]{30,}/;
-	ok($clean !~ /xai-[A-Za-z0-9]{30,}/, "no full bearer in $f");
+	$leaks++ if GrokAPI::Evidence::Redact->has_secret($body);
+	ok(!GrokAPI::Evidence::Redact->has_secret($body), "no full bearer in $f");
 }
 
-ok($leaks == 0, 'scratch captures redacted');
+ok($leaks == 0, 'scratch artifacts redacted');
 
 done_testing();

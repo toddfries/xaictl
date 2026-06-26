@@ -1,0 +1,8 @@
+{
+  "turnCount": 12,
+  "contextWindowUsage": 42.5,
+  "contextTokensUsed": 85000,
+  "contextWindowTokens": 200000,
+  "sessionDurationSeconds": 3600,
+  "primaryModelId": "grok-4-1-fast-non-reasoning"
+}

@@ -2,25 +2,44 @@
 
 use strict;
 use warnings;
-use Test::More tests => 4;
+use Test::More;
 
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
+use JSON;
 use GrokAPI::Harness::Signals;
 
 my $class = 'GrokAPI::Harness::Signals';
-my $sid   = '019f038d-943e-7ff2-a7bb-999474ec5a6a';
+my $fixture = "$Bin/fixtures/signals.json";
 
-my ($data, $path) = $class->read_signals($sid);
-ok($data, 'reads current goal session signals');
-ok($path && -f $path, 'signals path exists');
+open my $fh, '<', $fixture or die "fixture missing: $fixture\n";
+local $/; my $raw = <$fh>;
+close $fh;
+my $data = decode_json($raw);
+ok(ref $data eq 'HASH', 'fixture signals parse');
+
+ok(defined $data->{contextWindowUsage}, 'fixture has contextWindowUsage');
+
+my $out = $class->format_report(
+	$data,
+	session_id => 'fixture-session',
+	path         => $fixture,
+);
+like($out, qr/contextWindowUsage:/, 'format includes usage percent');
+like($out, qr/Grok Build harness signals/, 'format header');
 
 SKIP: {
-	skip 'no signals file', 2 unless $data;
-	ok(defined $data->{contextWindowUsage}, 'has contextWindowUsage');
-	my $out = $class->format_report($data, session_id => $sid, path => $path);
-	like($out, qr/contextWindowUsage:/, 'format includes usage percent');
+	skip 'GROK_SIGNALS_LIVE not set', 2 unless $ENV{GROK_SIGNALS_LIVE};
+	my $sid = $ENV{GROK_GOAL_SESSION};
+	if (!$sid) {
+		require GrokAPI::BuildLog;
+		$sid = GrokAPI::BuildLog->read_active_session_id();
+	}
+	skip 'no live session id', 2 unless $sid;
+	my ($live, $path) = $class->read_signals($sid);
+	ok($live, 'reads live session signals when GROK_SIGNALS_LIVE=1');
+	ok($path && -f $path, 'live signals path exists');
 }
 
 done_testing();
