@@ -27,7 +27,7 @@ sub run_cmd {
 # Step 1
 run_cmd('help.out', 'help.err', '--help');
 my $help = slurp("$scratch/help.out");
-ok($help =~ /keyinfo/ && $help =~ /session/ && $help =~ /balance/, 'step1 help');
+ok($help =~ /keyinfo/ && $help =~ /session/ && $help =~ /balance/ && $help =~ /buildlog/, 'step1 help');
 
 # Step 2
 if (-f $conf) {

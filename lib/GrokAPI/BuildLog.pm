@@ -75,6 +75,60 @@ sub scan_log {
 	return (\@turns, $totals);
 }
 
+sub scan_all_sessions {
+	my ($class, %args) = @_;
+	my $path = $args{log_path} // $class->default_log_path();
+	die "log file not found: $path\n" unless -f $path;
+
+	my %sessions;
+	open my $fh, '<', $path or die "cannot read $path: $!\n";
+	while (my $line = <$fh>) {
+		my $rec = $class->parse_inference_line($line);
+		next unless defined $rec;
+		my $sid = $rec->{session_id} // '';
+		next if $sid eq '';
+
+		$sessions{$sid} //= {
+			session_id => $sid,
+			first_ts   => $rec->{timestamp},
+			last_ts    => $rec->{timestamp},
+			totals     => $class->empty_totals(),
+		};
+		my $entry = $sessions{$sid};
+		$entry->{last_ts} = $rec->{timestamp} if defined $rec->{timestamp};
+		$class->accumulate_turn($entry->{totals}, $rec->{ctx});
+	}
+	close $fh;
+
+	my @ordered = sort {
+		($sessions{$b}{last_ts} // '') cmp ($sessions{$a}{last_ts} // '')
+	} keys %sessions;
+	return (\@ordered, \%sessions);
+}
+
+sub format_sessions_table {
+	my ($class, $ordered, $sessions) = @_;
+	$ordered  //= [];
+	$sessions //= {};
+
+	my @out;
+	push @out, '=== Grok Build sessions (from unified.jsonl) ===';
+	push @out, sprintf('%-36s  %5s  %12s  %s', 'session_id', 'turns', 'total_tokens', 'last_ts');
+	for my $sid (@{$ordered}) {
+		my $entry  = $sessions->{$sid} // {};
+		my $totals = $entry->{totals}  // $class->empty_totals();
+		push @out, sprintf(
+			'%-36s  %5d  %12d  %s',
+			$sid,
+			$totals->{turn_count}    // 0,
+			$totals->{total_tokens}  // 0,
+			$entry->{last_ts}         // '?',
+		);
+	}
+	push @out, sprintf('sessions: %d', scalar @{$ordered});
+	return join "\n", @out;
+}
+
 sub format_totals {
 	my ($class, $totals, $label) = @_;
 	$totals //= $class->empty_totals();
