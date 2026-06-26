@@ -32,12 +32,18 @@ for my $repo ($grokapi, $xaiapi) {
 }
 is($secret_hits, 0, 'no full xAI bearer tokens in tracked git files');
 
-my $scope_manifest = '/tmp/grok-goal-a7d760d85190/implementer/scope-manifest.txt';
+my $scratch = $ENV{GROK_GOAL_SCRATCH} // '/tmp/grok-goal-a7d760d85190/implementer';
+my $scope_manifest = "$scratch/scope-manifest.txt";
+ok(-f $scope_manifest, 'scope-manifest.txt exists from scope-guard');
 if (-f $scope_manifest) {
-	my $sm = do { open my $fh, '<', $scope_manifest; local $/; <$fh> };
+	my $sm = slurp_file($scope_manifest);
 	like($sm, qr/out_of_scope_paths/, 'scope-manifest documents out-of-scope CHANGED_FILES');
-} else {
-	pass('scope-manifest optional until evidence run');
+}
+
+sub slurp_file {
+	my ($path) = @_;
+	open my $fh, '<', $path or return '';
+	local $/; return <$fh>;
 }
 
 done_testing();

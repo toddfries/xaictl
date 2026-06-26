@@ -89,6 +89,7 @@ ok($guard_rc == 0, 'plan step 0: scope-guard repos clean and in-scope only');
 $manifest{steps}{step0_scope_guard} = { pass => $guard_rc == 0 ? 1 : 0 };
 
 wipe_scratch();
+system($guard);    # recreate scope-manifest.txt after wipe
 
 # --- Plan verification step 1 ---
 ok(-x $bin, 'plan step 1a: grok-sanity executable under git/sw/grokapi');
