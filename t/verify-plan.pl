@@ -226,7 +226,12 @@ if (has_inference_creds()) {
 }
 
 # --- Plan verification step 5 ---
-my $prove_rc = system("cd $root && prove -q t/*.t > $scratch/prove.out 2>&1");
+my $prove_rc;
+{
+	local $ENV{GROK_GOAL_SCRATCH} = undef;    # redact-evidence runs after captures
+	system("cd $root && prove -q t/*.t > $scratch/prove.out 2>&1");
+	$prove_rc = $? >> 8;
+}
 my $prove_out = slurp("$scratch/prove.out");
 my $step5_prove = $prove_rc == 0 && $prove_out =~ /Result: PASS/;
 ok($step5_prove, 'plan step 5a: pure unit tests pass (prove)');
@@ -418,7 +423,9 @@ push @vtxt, "Out-of-scope paths (harness CHANGED_FILES must NOT treat as deliver
 write_file('verification.txt', join("\n", @vtxt, ''));
 
 redact_scratch_captures();
-system("prove -q $Bin/redact-evidence.t >> $scratch/prove.out 2>&1");
+system("prove -q $Bin/redact-evidence.t > $scratch/redact-evidence.t.out 2>&1");
+my $redact_out = slurp("$scratch/redact-evidence.t.out");
+ok(($? >> 8) == 0 && $redact_out =~ /Result: PASS/, 'scratch captures redacted (redact-evidence.t)');
 ok(-f "$scratch/deliverables-scope.out", 'deliverables-scope.out documents in-scope deliverables only');
 ok(-f "$scratch/classifier-scope.out", 'classifier-scope.out lists git deliverables only');
 ok(-f "$scratch/in-scope-commits.out", 'in-scope-commits.out lists deliverable git history');
