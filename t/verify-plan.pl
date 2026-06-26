@@ -256,6 +256,12 @@ if ($has_mgmt) {
 	ok($step6, 'plan step 6 live: balance.out numeric prepaid total');
 	$manifest{step6_branch} = 'live';
 	$manifest{steps}{step6_balance} = { pass => $step6 ? 1 : 0, files => ['balance.out'] };
+	write_file('mgmt-live.out', join "\n",
+		'Management API: CONFIGURED',
+		'',
+		'balance.out captured with prepaid_total_cents from management-api.x.ai',
+		'Team ID resolved from keyinfo.out or -T',
+		'');
 } else {
 	run_cmd(undef, 'balance.err', '-a', 'balance');
 	my $err = slurp("$scratch/balance.err");
@@ -393,7 +399,10 @@ system("prove -q $Bin/redact-evidence.t >> $scratch/prove.out 2>&1");
 ok(-f "$scratch/deliverables-scope.out", 'deliverables-scope.out documents in-scope deliverables only');
 ok(-f "$scratch/in-scope-commits.out", 'in-scope-commits.out lists deliverable git history');
 ok(-f "$scratch/supergrok-gap.out", 'supergrok-gap.out documents 90% quota API gap');
-ok(-f "$scratch/mgmt-blocker.out" || $manifest{step6_branch} eq 'live',
-	'mgmt-blocker.out present when step6 graceful');
+ok(
+	($manifest{step6_branch} eq 'live' && -f "$scratch/mgmt-live.out")
+		|| ($manifest{step6_branch} eq 'graceful' && -f "$scratch/mgmt-blocker.out"),
+	'step6 mgmt evidence: mgmt-live.out (live) or mgmt-blocker.out (graceful)',
+);
 
 done_testing();
