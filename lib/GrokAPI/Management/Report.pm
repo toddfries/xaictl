@@ -12,6 +12,7 @@ sub format_limits_note {
 		'Per-key QPS/QPM/TPM limits are set in console.x.ai (not returned by /api-key).',
 		'SuperGrok/Grok Build consumer quotas (e.g. 90% usage emails) are NOT in this API.',
 		'Grok Build per-session tokens: grok-sanity -a buildlog --current',
+		'Grok Build context fill: grok-sanity -a signals --current',
 		'Developer API spend: per-request cost_usd; team billing needs management key.',
 		'API tier docs: https://docs.x.ai/developers/rate-limits',
 		'';

@@ -133,8 +133,9 @@ $manifest{steps}{step5_prove} = { pass => $step5, files => ['prove.out'] };
 system("prove -v $Bin/quota-boundary.t > $scratch/quota-boundary.t.out 2>&1");
 my $qb = slurp("$scratch/quota-boundary.t.out");
 ok($qb =~ /ok\s+\d+\s+-\s+documents SuperGrok/, 'step5b quota-boundary');
+my $step5b = $qb =~ /Result: PASS/ ? 1 : 0;
 $manifest{steps}{step5b_quota_boundary} = {
-	pass  => ($qb =~ /Result: PASS/),
+	pass  => $step5b,
 	files => ['quota-boundary.t.out'],
 };
 
