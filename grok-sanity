@@ -26,6 +26,7 @@ use Time::HiRes qw(gettimeofday tv_interval);
 use xAI::API;
 use GrokAPI::Config;
 use GrokAPI::Stats;
+use GrokAPI::BuildLog;
 
 my $opt_action   = 'help';
 my $opt_config   = GrokAPI::Config->default_config_path();
@@ -38,6 +39,9 @@ my $opt_query;
 my @opt_queries;
 my $opt_debug    = 0;
 my $opt_help;
+my $opt_session_id;
+my $opt_log_file;
+my $opt_current;
 
 GetOptions(
 	'action|a=s'     => \$opt_action,
@@ -49,6 +53,9 @@ GetOptions(
 	'team-id|T=s'    => \$opt_team_id,
 	'query|Q=s'      => \$opt_query,
 	'queries=s@'     => \@opt_queries,
+	'session-id|S=s' => \$opt_session_id,
+	'log-file=s'     => \$opt_log_file,
+	'current'        => \$opt_current,
 	'debug|d'        => \$opt_debug,
 	'help|h'         => \$opt_help,
 ) or usage(1);
@@ -87,13 +94,16 @@ elsif ($opt_action eq 'session') {
 	run_session($bearer, read_session_queries());
 }
 elsif ($opt_action eq 'balance') {
-	run_balance($mgmt_key);
+	run_balance($mgmt_key, $bearer);
 }
 elsif ($opt_action eq 'usage') {
 	run_usage($mgmt_key);
 }
 elsif ($opt_action eq 'limits') {
 	run_limits($mgmt_key);
+}
+elsif ($opt_action eq 'buildlog') {
+	run_buildlog();
 }
 else {
 	die "Unknown action '$opt_action'\n";
@@ -110,6 +120,7 @@ Actions:
   keyinfo   Report API key state (team_id, acls, blocked/disabled flags)
   query     Run one Grok query and report per-call token/cost usage
   session   Run multiple queries in one invocation and report session totals
+  buildlog  Sum Grok Build harness token usage from ~/.grok/logs/unified.jsonl
   balance   Prepaid credit balance (requires management key + team_id)
   usage     Usage analytics summary for current month (management key)
   limits    Postpaid spending limits and invoice preview (management key)
@@ -122,6 +133,9 @@ Options:
   -m, --model MODEL       Model for query/session (default: grok-4-1-fast-non-reasoning)
   -M, --management KEY    Management API key (or XAI_MANAGEMENT_API_KEY)
   -T, --team-id ID        Team ID for management actions (else from keyinfo)
+  -S, --session-id ID     Grok Build session id for buildlog (or --current)
+      --log-file PATH     unified.jsonl path (default: ~/.grok/logs/unified.jsonl)
+      --current           Use active session from ~/.grok/active_sessions.json
   -Q, --query TEXT        Query text for query action
       --queries TEXT      Repeatable query text for session action
   -d, --debug             Verbose API debug output
@@ -132,15 +146,16 @@ Environment:
   XAI_MANAGEMENT_API_KEY   Management API key
 
 Notes on SuperGrok / Grok Build quotas:
-  Consumer SuperGrok usage limits (e.g. 90% emails, monthly resets) are NOT
-  exposed via the developer API. This tool reports API-key state, per-request
-  cost_in_usd_ticks from inference responses, and team billing via the
-  Management API. Check https://console.x.ai for tier rate limits.
+  Consumer SuperGrok limits (e.g. 90% emails, June 30 reset) are NOT in the
+  developer API. Use buildlog to sum Grok Build harness tokens per session;
+  use query/session for developer API cost_in_usd_ticks; use balance/usage
+  with a management key for team billing. See https://console.x.ai
 
 Examples:
   grok-sanity -a keyinfo
   grok-sanity -a query -Q "Say only hello."
   grok-sanity -a session --queries "Say hi." --queries "Say bye."
+  grok-sanity -a buildlog --current
   grok-sanity -a balance -T <team_id>
 EOF
 	exit($code // 0);
@@ -208,7 +223,8 @@ sub print_limits_note {
 	print "\n--- Rate limits / SuperGrok context ---\n";
 	print "Per-key QPS/QPM/TPM limits are set in console.x.ai (not returned by /api-key).\n";
 	print "SuperGrok/Grok Build consumer quotas (e.g. 90% usage emails) are NOT in this API.\n";
-	print "This tool tracks developer API spend (per-request cost_usd + management billing).\n";
+	print "Grok Build per-session tokens: grok-sanity -a buildlog --current\n";
+	print "Developer API spend: per-request cost_usd; team billing needs management key.\n";
 	print "API tier docs: https://docs.x.ai/developers/rate-limits\n";
 }
 
@@ -283,8 +299,43 @@ sub run_session {
 	print_limits_note();
 }
 
+sub run_buildlog {
+	my $session_id = $opt_session_id;
+	if ($opt_current) {
+		$session_id = GrokAPI::BuildLog->read_active_session_id();
+		die "No active session in ~/.grok/active_sessions.json; pass -S <session_id>\n"
+			unless defined $session_id && $session_id ne '';
+	}
+	die "buildlog requires -S <session_id> or --current\n"
+		unless defined $session_id && $session_id ne '';
+
+	my $log_path = $opt_log_file // GrokAPI::BuildLog->default_log_path();
+	my ($turns, $totals) = GrokAPI::BuildLog->scan_log(
+		log_path    => $log_path,
+		session_id  => $session_id,
+	);
+
+	print "=== Grok Build session log ===\n";
+	printf "session_id: %s\n", $session_id;
+	printf "log_file:   %s\n", $log_path;
+	printf "turns:      %d\n", scalar @{$turns};
+
+	for my $rec (@{$turns}) {
+		my $ctx = $rec->{ctx};
+		printf "  turn %2d %s prompt=%d completion=%d cached=%d\n",
+			$ctx->{loop_index} // 0,
+			$rec->{timestamp} // '?',
+			$ctx->{prompt_tokens} // 0,
+			$ctx->{completion_tokens} // 0,
+			$ctx->{cached_prompt_tokens} // 0;
+	}
+
+	print "\n", GrokAPI::BuildLog->format_totals($totals), "\n";
+	print_limits_note();
+}
+
 sub run_balance {
-	my ($mgmt_key) = @_;
+	my ($mgmt_key, $bearer) = @_;
 	my $team_id = resolve_team_id($bearer);
 	die "team_id required: pass -T or provide inference bearer for keyinfo lookup\n"
 		unless defined $team_id && $team_id ne '';
