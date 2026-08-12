@@ -1,4 +1,4 @@
-package GrokAPI::Management::Data;
+package xaictl::Management::Data;
 
 use strict;
 use warnings;
@@ -149,40 +149,57 @@ sub field {
 
 sub format_ls {
 	my ($class, $items, $store) = @_;
-	$items //= [];
-	my @out;
-	push @out, sprintf('# %s (%d items)', $store, scalar @{$items});
-	for my $it (@{$items}) {
-		my $cat = $class->store_catalog()->{$store};
-		my $id   = $class->field($it, $cat->{id_field}) || $class->field($it, 'id');
-		my $name = $class->field($it, $cat->{name_field}) || $id;
-		push @out, sprintf('%s  %s', $id, $name);
-	}
-	return join "\n", @out, '';
+	return $class->_format_list($items, $store, 0);
 }
 
 sub format_lsl {
 	my ($class, $items, $store) = @_;
+	return $class->_format_list($items, $store, 1);
+}
+
+sub _format_list {
+	my ($class, $items, $store, $long) = @_;
+	require xaictl::Kv;
+	my $kv = xaictl::Kv->new;
+	$class->emit_list($kv, $items, $store, long => $long);
+	return $kv->as_string();
+}
+
+sub emit_list {
+	my ($class, $kv, $items, $store, %args) = @_;
 	$items //= [];
 	my $cat = $class->store_catalog()->{$store};
-	my @cols = qw(id name size time);
-	my @out;
-	push @out, sprintf('%-40s %-30s %12s %12s', @cols);
-	for my $it (@{$items}) {
+	my $p   = $args{prefix} // 'xai.mgmt.data';
+	$kv->kv("$p.store", $store);
+	$kv->kv("$p.count", scalar @{$items});
+	for my $i (0 .. $#{$items}) {
+		my $it   = $items->[$i];
 		my $id   = $class->field($it, $cat->{id_field}) || $class->field($it, 'id');
-		my $name = $class->field($it, $cat->{name_field}) || '-';
-		my $size = $class->field($it, $cat->{size_field});
-		$size = $class->field($it, 'bytes') if $size eq '' && $store eq 'Files';
-		my $time = $class->field($it, $cat->{time_field});
-		push @out, sprintf('%-40s %-30s %12s %12s', $id, $name, $size, $time);
+		my $name = $class->field($it, $cat->{name_field}) || $id;
+		$kv->kv("$p.$i.id",   $id);
+		$kv->kv("$p.$i.name", $name);
+		if ($args{long}) {
+			my $size = $class->field($it, $cat->{size_field});
+			$size = $class->field($it, 'bytes') if $size eq '' && $store eq 'Files';
+			$kv->kv("$p.$i.size", $size);
+			$kv->kv("$p.$i.time", $class->field($it, $cat->{time_field}));
+		}
 	}
-	push @out, sprintf('total: %d', scalar @{$items});
-	return join "\n", @out, '';
+	return $kv;
 }
 
 sub format_size {
 	my ($class, $items, $store) = @_;
+	require xaictl::Kv;
+	my $kv = xaictl::Kv->new;
+	$class->emit_size($kv, $items, $store);
+	return $kv->as_string();
+}
+
+sub emit_size {
+	my ($class, $kv, $items, $store, %args) = @_;
 	$items //= [];
+	my $p     = $args{prefix} // 'xai.mgmt.data';
 	my $count = scalar @{$items};
 	my $bytes = 0;
 	if ($store eq 'Files') {
@@ -190,9 +207,11 @@ sub format_size {
 			my $b = $it->{bytes} // $it->{size} // 0;
 			$bytes += $b if $b =~ /^\d+$/;
 		}
-		return sprintf("%s: %d objects, %d bytes total\n", $store, $count, $bytes);
 	}
-	return sprintf("%s: %d objects\n", $store, $count);
+	$kv->kv("$p.store", $store);
+	$kv->kv("$p.count", $count);
+	$kv->kv("$p.total_bytes", $bytes) if $store eq 'Files';
+	return $kv;
 }
 
 sub format_cat {

@@ -1,4 +1,4 @@
-package GrokAPI::Harness::Signals;
+package xaictl::Harness::Signals;
 
 use strict;
 use warnings;
@@ -46,24 +46,36 @@ sub read_signals {
 
 sub format_report {
 	my ($class, $signals, %args) = @_;
+	require xaictl::Kv;
+	my $kv = xaictl::Kv->new;
+	$class->emit_report($kv, $signals, %args);
+	return $kv->as_string();
+}
+
+sub emit_report {
+	my ($class, $kv, $signals, %args) = @_;
 	$signals //= {};
-	my @out;
-	push @out, '=== Grok Build harness signals ===';
-	push @out, sprintf('session_id: %s', $args{session_id} // '(unknown)');
-	push @out, sprintf('signals_file: %s', $args{path} // '(unknown)');
-	for my $field (qw(
-		turnCount contextWindowUsage contextTokensUsed contextWindowTokens
-		sessionDurationSeconds primaryModelId
-	)) {
-		push @out, sprintf('%s: %s', $field, $signals->{$field} // '(undef)')
-			if exists $signals->{$field};
+	my $p = $args{prefix} // 'xai.signals';
+	$kv->kv("$p.session_id",    $args{session_id});
+	$kv->kv("$p.signals_file",  $args{path});
+	my %map = (
+		turnCount              => 'turn_count',
+		contextWindowUsage     => 'context_window_usage',
+		contextTokensUsed      => 'context_tokens_used',
+		contextWindowTokens    => 'context_window_tokens',
+		sessionDurationSeconds => 'session_duration_secs',
+		primaryModelId         => 'primary_model_id',
+		toolCallCount          => 'tool_call_count',
+		errorCount             => 'error_count',
+		compactionCount        => 'compaction_count',
+	);
+	for my $src (sort keys %map) {
+		next unless exists $signals->{$src};
+		$kv->kv("$p.$map{$src}", $signals->{$src});
 	}
-	push @out, '',
-		'Note: contextWindowUsage is harness context-fill % (not SuperGrok consumer quota).',
-		'SuperGrok subscription % (e.g. 90% email) has no public xAI API; check grok.com settings.',
-		'Per-turn API tokens: grok-sanity -a buildlog --current',
-		'';
-	return join "\n", @out;
+	$kv->kv("$p.note",
+		'context_window_usage is harness context-fill % (not SuperGrok consumer quota)');
+	return $kv;
 }
 
 1;

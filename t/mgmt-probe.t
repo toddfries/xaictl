@@ -7,9 +7,9 @@ use Test::More tests => 7;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
-use GrokAPI::Management::Probe;
+use xaictl::Management::Probe;
 
-my $class = 'GrokAPI::Management::Probe';
+my $class = 'xaictl::Management::Probe';
 my $cat   = $class->endpoint_catalog();
 
 ok(ref $cat->{readonly} eq 'ARRAY' && @{$cat->{readonly}} >= 8, 'readonly catalog');
@@ -48,7 +48,7 @@ ok($ok > 0, 'mock probe has successes');
 ok($deny > 0, 'mock probe records denials');
 
 my $report = $class->format_report($results, team_id => 'team-1');
-like($report, qr/Management API readonly probe/, 'format_report header');
-like($report, qr/Write-capable endpoints/, 'format_report write section');
+like($report, qr/xai\.mgmt\.probe\.team_id=team-1/, 'format_report team');
+like($report, qr/xai\.mgmt\.probe\.write_capable\.count=/, 'format_report write section');
 
 done_testing();

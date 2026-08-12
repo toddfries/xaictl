@@ -1,4 +1,4 @@
-package GrokAPI::TeamContext;
+package xaictl::TeamContext;
 
 use strict;
 use warnings;

@@ -7,14 +7,14 @@ use Test::More;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
-use GrokAPI::Evidence::Redact;
+use xaictl::Evidence::Redact;
 
 my $scratch = $ENV{GROK_GOAL_SCRATCH};
 unless ($scratch && -d $scratch) {
 	plan skip_all => 'GROK_GOAL_SCRATCH not set';
 }
 
-GrokAPI::Evidence::Redact->redact_dir(
+xaictl::Evidence::Redact->redact_dir(
 	$scratch,
 	skip => { 'verify-plan.out' => 1 },
 );
@@ -35,8 +35,8 @@ for my $f (sort @files) {
 		local $/; $body = <$fh> // '';
 		close $fh;
 	}
-	$leaks++ if GrokAPI::Evidence::Redact->has_secret($body);
-	ok(!GrokAPI::Evidence::Redact->has_secret($body), "no full bearer in $f");
+	$leaks++ if xaictl::Evidence::Redact->has_secret($body);
+	ok(!xaictl::Evidence::Redact->has_secret($body), "no full bearer in $f");
 }
 
 ok($leaks == 0, 'scratch artifacts redacted');

@@ -8,15 +8,15 @@ use FindBin qw($Bin);
 use JSON;
 
 use lib "$Bin/../lib";
-use GrokAPI::BuildLog;
-use GrokAPI::Evidence::Redact;
+use xaictl::BuildLog;
+use xaictl::Evidence::Redact;
 
 die "GROK_GOAL_SCRATCH must be set to the goal implementer scratch dir\n"
 	unless defined $ENV{GROK_GOAL_SCRATCH} && $ENV{GROK_GOAL_SCRATCH} ne '';
 
 my $root    = "$Bin/..";
 my $scratch = $ENV{GROK_GOAL_SCRATCH};
-my $bin     = "$root/grok-sanity";
+my $bin     = "$root/xaictl";
 my $guard   = "$Bin/scope-guard.sh";
 my $empty_conf = "$Bin/fixtures/empty.conf";
 
@@ -76,7 +76,7 @@ sub goal_session_id {
 	if (defined $ENV{GROK_GOAL_SESSION} && $ENV{GROK_GOAL_SESSION} ne '') {
 		return $ENV{GROK_GOAL_SESSION};
 	}
-	return GrokAPI::BuildLog->read_active_session_id();
+	return xaictl::BuildLog->read_active_session_id();
 }
 
 sub has_inference_creds {
@@ -92,7 +92,7 @@ sub verify_cmd_base {
 }
 
 sub redact_scratch_captures {
-	GrokAPI::Evidence::Redact->redact_dir(
+	xaictl::Evidence::Redact->redact_dir(
 		$scratch,
 		skip => { 'verify-plan.out' => 1 },
 	);
@@ -101,11 +101,10 @@ sub redact_scratch_captures {
 sub structure_keys {
 	my ($text) = @_;
 	my @keys;
-	push @keys, 'query_header'   if $text =~ /=== Query \d+/;
-	push @keys, 'usage_line'     if $text =~ /usage:.*total_tokens=/;
+	push @keys, 'query_header'   if $text =~ /query\.\d+\./;
+	push @keys, 'usage_line'     if $text =~ /usage\.total_tokens=/;
 	push @keys, 'cost_ticks'     if $text =~ /cost_in_usd_ticks=/;
-	push @keys, 'cost_usd'       if $text =~ /cost_usd=\$/;
-	push @keys, 'limits_note'    if $text =~ /Rate limits \/ SuperGrok/;
+	push @keys, 'cost_usd'       if $text =~ /cost_usd=/;
 	return join ',', sort @keys;
 }
 
@@ -126,7 +125,7 @@ system($guard);    # recreate scope-manifest.txt after wipe
 # Live steps require XAI_API_KEY / XAI_MANAGEMENT_API_KEY pre-exported in environment.
 
 # --- Plan verification step 1 ---
-ok(-x $bin, 'plan step 1a: grok-sanity executable under git/sw/grokapi');
+ok(-x $bin, 'plan step 1a: xaictl executable under git/sw/grokapi');
 run_cmd('help.out', 'help.err', '--help');
 my $help = slurp("$scratch/help.out");
 my $step1 = $help =~ /keyinfo/
@@ -143,13 +142,13 @@ $manifest{steps}{step1_help} = {
 # --- Plan verification step 2 ---
 my $step2 = 0;
 if (has_inference_creds()) {
-	run_cmd('keyinfo.out', 'keyinfo.err', '-a', 'keyinfo');
+	run_cmd('keyinfo.out', 'keyinfo.err', 'keyinfo');
 	my $ki = slurp("$scratch/keyinfo.out");
-	$step2 = $ki =~ /team_id:/
-		&& $ki =~ /acls:/
-		&& $ki =~ /api_key_blocked:/
-		&& ($ki =~ /redacted_api_key:/ || $ki =~ /api_key_id:/)
-		&& !GrokAPI::Evidence::Redact->has_secret($ki);
+	$step2 = $ki =~ /keyinfo\.team_id=/
+		&& $ki =~ /keyinfo\.acls/
+		&& $ki =~ /keyinfo\.api_key_blocked=/
+		&& ($ki =~ /keyinfo\.redacted_api_key=/ || $ki =~ /keyinfo\.api_key_id=/)
+		&& !xaictl::Evidence::Redact->has_secret($ki);
 	ok($step2, 'plan step 2: keyinfo has team_id, acls, redacted key, blocked flags');
 	$manifest{steps}{step2_keyinfo} = {
 		pass   => $step2 ? 1 : 0,
@@ -157,7 +156,7 @@ if (has_inference_creds()) {
 		branch => 'env_credentials',
 	};
 } else {
-	run_cmd('keyinfo.out', 'keyinfo.err', '-a', 'keyinfo');
+	run_cmd('keyinfo.out', 'keyinfo.err', 'keyinfo');
 	my $ki = slurp("$scratch/keyinfo.out") . slurp("$scratch/keyinfo.err");
 	$step2 = $ki =~ /No bearer token/;
 	ok($step2, 'plan step 2: keyinfo graceful when no bearer token');
@@ -167,8 +166,8 @@ if (has_inference_creds()) {
 # --- Plan verification step 3 ---
 my $step3 = 0;
 if (has_inference_creds()) {
-	run_cmd('query.out', 'query.err', '-a', 'query', '-Q', "Say only 'hello'.");
-	run_cmd('query2.out', 'query2.err', '-a', 'query', '-Q', "Say only 'hello'.");
+	run_cmd('query.out', 'query.err', 'query', '-Q', "Say only 'hello'.");
+	run_cmd('query2.out', 'query2.err', 'query', '-Q', "Say only 'hello'.");
 	my $q  = slurp("$scratch/query.out");
 	my $q2 = slurp("$scratch/query2.out");
 	my $q_tokens  = extract_field($q, 'total_tokens');
@@ -188,21 +187,20 @@ if (has_inference_creds()) {
 # --- Plan verification step 4 ---
 my $step4 = 0;
 if (has_inference_creds()) {
-	run_cmd('session.out', 'session.err', '-a', 'session',
+	run_cmd('session.out', 'session.err', 'session',
 		'--queries', "Say only 'one'.", '--queries', "Say only 'two'.");
 	my $s = slurp("$scratch/session.out");
 	my $single_tokens = extract_field($s, 'total_tokens');    # first query line
-	my ($session_tokens) = $s =~ /session_total:.*total_tokens=(\d+)/;
+	my ($session_tokens) = $s =~ /session\.usage\.total_tokens=(\d+)/;
 	my $single_cost  = extract_cost_ticks($s);
-	my ($session_cost) = $s =~ /session_total:.*cost_in_usd_ticks=(\d+)/;
+	my ($session_cost) = $s =~ /session\.usage\.cost_in_usd_ticks=(\d+)/;
 	$session_tokens //= 0;
 	$session_cost   //= 0;
-	# first query total_tokens on line 5 typically 149; session should be 298
-	my ($first_q_tokens) = $s =~ /^usage:.*total_tokens=(\d+)/m;
+	my ($first_q_tokens) = $s =~ /^query\.1\.usage\.total_tokens=(\d+)/m;
 	$first_q_tokens //= $single_tokens;
 	$step4 = $session_tokens > $first_q_tokens
 		&& $session_cost > 0
-		&& $s =~ /session_total:.*total_cost|cost_in_usd_ticks/;
+		&& $s =~ /session\.usage\.cost_in_usd_ticks=/;
 	ok($step4, 'plan step 4: session summary total_tokens and cost exceed single query');
 	$manifest{steps}{step4_session} = { pass => $step4 ? 1 : 0, files => ['session.out'] };
 }
@@ -220,7 +218,7 @@ ok($step5_prove, 'plan step 5a: pure unit tests pass (prove)');
 
 # Source audit: real API paths, not mocks
 my @audit;
-for my $file (qw(grok-sanity lib/GrokAPI/Stats.pm lib/GrokAPI/TeamContext.pm)) {
+for my $file (qw(xaictl lib/xaictl/Stats.pm lib/xaictl/TeamContext.pm)) {
 	my $path = "$root/$file";
 	next unless -f $path;
 	my $src = slurp($path);
@@ -257,11 +255,11 @@ my $step6 = 0;
 if ($has_mgmt) {
 	my $team = '';
 	if (-f "$scratch/keyinfo.out") {
-		($team) = slurp("$scratch/keyinfo.out") =~ /team_id:\s+(\S+)/;
+		($team) = slurp("$scratch/keyinfo.out") =~ /keyinfo\.team_id=(\S+)/;
 	}
-	run_cmd('balance.out', 'balance.err', '-a', 'balance', '-T', $team) if $team;
+	run_cmd('balance.out', 'balance.err', 'xai.mgmt.balance', '-T', $team) if $team;
 	my $bal = slurp("$scratch/balance.out");
-	$step6 = $bal =~ /prepaid_total_cents:\s*-?\d+/;
+	$step6 = $bal =~ /xai\.mgmt\.balance\.prepaid_total_cents=-?\d+/;
 	ok($step6, 'plan step 6 live: balance.out numeric prepaid total');
 	$manifest{step6_branch} = 'live';
 	$manifest{steps}{step6_balance} = { pass => $step6 ? 1 : 0, files => ['balance.out'] };
@@ -272,7 +270,7 @@ if ($has_mgmt) {
 		'Team ID resolved from keyinfo.out or -T',
 		'');
 } else {
-	run_cmd(undef, 'balance.err', '-a', 'balance');
+	run_cmd(undef, 'balance.err', 'xai.mgmt.balance');
 	my $err = slurp("$scratch/balance.err");
 	$step6 = $err =~ /No management key/
 		&& !-f "$scratch/balance.out";
@@ -304,13 +302,13 @@ my $step7 = 0;
 my $goal_sid = goal_session_id();
 my $log_path = $ENV{HOME} . '/.grok/logs/unified.jsonl';
 if (-f $log_path) {
-	my $bl_rc = run_cmd('buildlog.out', 'buildlog.err', '-a', 'buildlog', '--current');
+	my $bl_rc = run_cmd('buildlog.out', 'buildlog.err', 'xai.buildlog', '--current');
 	if (($bl_rc != 0 || !-s "$scratch/buildlog.out") && defined $goal_sid && $goal_sid ne '') {
-		$bl_rc = run_cmd('buildlog.out', 'buildlog.err', '-a', 'buildlog', '-S', $goal_sid);
+		$bl_rc = run_cmd('buildlog.out', 'buildlog.err', 'xai.buildlog', '-S', $goal_sid);
 	}
 	my $bl = slurp("$scratch/buildlog.out");
-	my ($turns) = $bl =~ /turns:\s+(\d+)/;
-	my ($total) = $bl =~ /total_tokens=(\d+)/;
+	my ($turns) = $bl =~ /xai\.buildlog\.turns=(\d+)/;
+	my ($total) = $bl =~ /xai\.buildlog\.totals\.total_tokens=(\d+)/;
 	$step7 = ($turns // 0) > 0 && ($total // 0) > 0;
 	ok($step7, 'plan step 7: buildlog.out turns>0 total_tokens>0 from unified.jsonl');
 	$manifest{steps}{step7_buildlog} = {
@@ -325,15 +323,15 @@ if (-f $log_path) {
 
 # --- Plan verification step 8: signals ---
 my $step8 = 0;
-my $sig_rc = run_cmd('signals.out', 'signals.err', '-a', 'signals', '--current');
+my $sig_rc = run_cmd('signals.out', 'signals.err', 'xai.signals', '--current');
 if (($sig_rc != 0 || !-s "$scratch/signals.out")
 	&& defined $goal_sid && $goal_sid ne '') {
-	$sig_rc = run_cmd('signals.out', 'signals.err', '-a', 'signals', '-S', $goal_sid);
+	$sig_rc = run_cmd('signals.out', 'signals.err', 'xai.signals', '-S', $goal_sid);
 }
 my $sig = slurp("$scratch/signals.out");
-$step8 = $sig =~ /contextWindowUsage:/
-	|| $sig =~ /contextTokensUsed:/
-	|| $sig =~ /Grok Build harness signals/;
+$step8 = $sig =~ /xai\.signals\.context_window_usage=/
+	|| $sig =~ /xai\.signals\.context_tokens_used=/
+	|| $sig =~ /xai\.signals\.session_id=/;
 ok($step8, 'plan step 8: signals.out harness context fields (not SuperGrok quota API)');
 $manifest{steps}{step8_signals} = {
 	pass  => $step8 ? 1 : 0,

@@ -7,9 +7,9 @@ use Test::More;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
-use GrokAPI::Management::Data;
+use xaictl::Management::Data;
 
-my $class = 'GrokAPI::Management::Data';
+my $class = 'xaictl::Management::Data';
 
 is($class->normalize_store('files'), 'Files', 'normalize files');
 is($class->normalize_store('CUA_instances'), 'CUA_instances', 'normalize CUA');
@@ -43,21 +43,25 @@ my $mock_api = bless {}, 'MockDataAPI';
 }
 
 my $ls = $class->run_command(api => $mock_api, cmd => 'ls', store => 'Files');
-like($ls, qr/# Files \(2 items\)/, 'ls header');
-like($ls, qr/f1\s+one\.txt/, 'ls row');
+like($ls, qr/xai\.mgmt\.data\.store=Files/, 'ls store');
+like($ls, qr/xai\.mgmt\.data\.count=2/, 'ls count');
+like($ls, qr/xai\.mgmt\.data\.0\.id=f1/, 'ls row id');
+like($ls, qr/xai\.mgmt\.data\.0\.name=one\.txt/, 'ls row name');
 
 my $lsl = $class->run_command(api => $mock_api, cmd => 'lsl', store => 'Files');
-like($lsl, qr/id\s+name/, 'lsl columns');
-like($lsl, qr/total: 2/, 'lsl total');
+like($lsl, qr/xai\.mgmt\.data\.0\.size=10/, 'lsl size');
+like($lsl, qr/xai\.mgmt\.data\.count=2/, 'lsl count');
 
 my $size = $class->run_command(api => $mock_api, cmd => 'size', store => 'Files');
-is($size, "Files: 2 objects, 30 bytes total\n", 'size sum');
+like($size, qr/xai\.mgmt\.data\.count=2/, 'size count');
+like($size, qr/xai\.mgmt\.data\.total_bytes=30/, 'size sum');
 
 my $cat_out = $class->run_command(api => $mock_api, cmd => 'cat', store => 'Files', id => 'f1');
 is($cat_out, "hello world\n", 'cat text content');
 
 my $coll = $class->run_command(api => $mock_api, cmd => 'ls', store => 'Collections');
-like($coll, qr/c1\s+docs/, 'collections ls');
+like($coll, qr/xai\.mgmt\.data\.0\.id=c1/, 'collections ls id');
+like($coll, qr/xai\.mgmt\.data\.0\.name=docs/, 'collections ls name');
 
 my $binary = $class->format_cat({
 	type  => 'content',

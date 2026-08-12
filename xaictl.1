@@ -1,0 +1,479 @@
+.\" Copyright (c) 2026 Todd T. Fries <todd@fries.net>
+.\"
+.\" Permission to use, copy, modify, and distribute this software for any
+.\" purpose with or without fee is hereby granted.
+.\"
+.Dd $Mdocdate: August 12 2026 $
+.Dt XAICTL 1
+.Os
+.Sh NAME
+.Nm xaictl
+.Nd dump xAI / Grok Build / developer-API status as sysctl-style key/value lines
+.Sh SYNOPSIS
+.Nm
+.Op Fl ajlr
+.Op Fl b Ar url
+.Op Fl c Ar file
+.Op Fl m Ar model
+.Op Fl M Ar key
+.Op Fl Q Ar text
+.Op Fl S Ar id
+.Op Fl T Ar team
+.Op Fl t Ar secs
+.Op Fl -auth Ar path
+.Op Fl -refresh
+.Op Fl -no-refresh
+.Op Fl -refresh-only
+.Op Fl -current
+.Op Ar prefix ...
+.Nm
+.Cm query
+.Fl Q Ar text
+.Nm
+.Cm session
+.Fl -queries Ar text
+.Fl -queries Ar text
+.Nm
+.Cm data
+.Ar ls|lsl|cat|size
+.Op Ar store
+.Op Ar id
+.Sh DESCRIPTION
+.Nm
+is the single CLI for xAI account and API status.
+It merges the former
+.Nm grok-sanity
+developer-API / harness tools with the former
+.Nm xai-status
+cli-chat-proxy dump.
+Every read-only fact is printed as one
+.Cm key=value
+line
+.Pq sysctl-like ,
+suitable for
+.Xr grep 1
+or
+.Xr awk 1 .
+.Pp
+With no arguments, or with
+.Fl a ,
+.Nm
+dumps every default read-only tree the current credentials can satisfy.
+Missing credentials become
+.Va prefix.available=false
+and
+.Va prefix.error=...
+rather than aborting the rest of the dump.
+.Pp
+Positional arguments are key prefixes
+.Pq not
+.Fl s
+section names :
+.Bd -literal -offset indent
+xaictl xai.credits xai.mgmt.balance
+xaictl keyinfo
+xaictl keyinfo.team_id
+.Ed
+.Pp
+.Cm query
+and
+.Cm session
+are explicit verbs only.
+They burn inference tokens and are never part of
+.Fl a .
+.Pp
+Two credential worlds exist and are both used when present:
+.Bl -bullet
+.It
+Grok Build / consumer:
+.Pa ~/.grok/auth.json
+.Pq written by Ic grok login
+plus optional OIDC refresh against
+.Lk https://auth.x.ai .
+.It
+Developer / management API:
+.Ev XAI_API_KEY
+and
+.Ev XAI_MANAGEMENT_API_KEY
+.Pq or Pa ~/.config/cxai/grok.conf
+for
+.Va keyinfo
+and
+.Va xai.mgmt.* .
+.El
+.Pp
+Timestamps from the proxy/auth path use
+.Sy Date::Manip
+in the local timezone:
+.Bd -literal -offset indent
+YYYYMMDD HHMMSS.<ms> ±HH:MM
+.Ed
+Each such key also emits
+.Va key.raw
+.Pq RFC 3339
+and
+.Va key.unix
+.Pq epoch seconds .
+Bearer and refresh tokens are never printed.
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl a , Fl -all
+Dump every default read-only tree.
+Implied when no prefix is given.
+.It Fl s Ar name , Fl -section Ar name
+Extra section or prefix.
+Prefer positional prefixes;
+this flag is kept for
+.Nm xai-status
+muscle memory.
+.It Fl r , Fl -refresh
+Force an OIDC refresh before proxy fetches
+.Pq rewrites Pa auth.json
+on success.
+.It Fl -no-refresh
+Never call the IdP and never rewrite
+.Pa auth.json .
+.It Fl -refresh-only
+Refresh or adopt a sibling token, print refresh keys, exit.
+.It Fl j , Fl -json
+Also emit a compact JSON blob per proxy section as
+.Va prefix.json .
+.It Fl -auth Ar path
+Path to
+.Pa auth.json
+.Pq default: Pa ~/.grok/auth.json
+or
+.Ev GROK_HOME Ns /auth.json .
+.It Fl b Ar url , Fl -base Ar url
+cli-chat-proxy base URL
+.Pq default: Li https://cli-chat-proxy.grok.com/v1 .
+.It Fl t Ar secs , Fl -timeout Ar secs
+HTTP timeout in seconds
+.Pq default: 20 .
+.It Fl c Ar file , Fl -config Ar file
+Developer-API config
+.Pq default: Pa ~/.config/cxai/grok.conf .
+.It Fl -config-section Ar sec
+Config section for the inference bearer
+.Pq default: Li creds .
+.It Fl -mgmt-section Ar sec
+Config section for the management key
+.Pq default: Li mgmt .
+.It Fl m Ar model , Fl -model Ar model
+Model for
+.Cm query
+/
+.Cm session .
+.It Fl M Ar key , Fl -management Ar key
+Management API key
+.Pq or Ev XAI_MANAGEMENT_API_KEY .
+.It Fl T Ar id , Fl -team-id Ar id
+Team UUID for
+.Va xai.mgmt.*
+trees.
+Else resolved via
+.Va keyinfo.team_id .
+.It Fl Q Ar text , Fl -query Ar text
+Prompt for
+.Cm query .
+.It Fl -queries Ar text
+Repeatable prompt for
+.Cm session
+.Pq at least two .
+.It Fl S Ar id , Fl -session-id Ar id
+Grok Build session id for
+.Va xai.buildlog
+and
+.Va xai.signals .
+.It Fl -log-file Ar path
+.Pa unified.jsonl
+path for
+.Va xai.buildlog .
+.It Fl -current
+Use the active session from
+.Pa ~/.grok/active_sessions.json .
+.It Fl -history-max-sessions Ar n
+Cap per-session dump under
+.Va xai.history
+.Pq default 200 .
+.It Fl d , Fl -debug
+Verbose developer-API debug.
+.It Fl l , Fl -list
+List section names and exit.
+.It Fl h , Fl -help
+Print a short usage summary and exit.
+.El
+.Sh SECTIONS
+Default
+.Fl a
+trees
+.Pq when credentials exist :
+.Cm auth ,
+.Cm user ,
+.Cm subscription ,
+.Cm credits ,
+.Cm legacy ,
+.Cm autotopup ,
+.Cm settings ,
+.Cm models ,
+.Cm keyinfo ,
+.Cm balance ,
+.Cm usage ,
+.Cm limits ,
+.Cm note .
+.Pp
+Opt-in prefixes:
+.Cm history ,
+.Cm probe
+.Pq Li xai.mgmt.probe ,
+.Cm buildlog ,
+.Cm signals .
+.Pp
+Explicit verbs only:
+.Cm query ,
+.Cm session ,
+.Cm data .
+.Bl -tag -width xai.billing_legacyXX
+.It Cm xai.auth
+Local credential metadata from
+.Pa auth.json
+.Pq no secrets :
+scope, mode, user id, email, expiry, proxy base.
+Also
+.Va xai.date.format
+and
+.Va xai.date.local_tz .
+.It Cm xai.user
+.Li GET /v1/user
+— profile, principal, team/org, block reasons.
+.It Cm xai.subscription
+.Li GET /v1/user?include=subscription
+plus live
+.Va subscriptionTier .
+.It Cm xai.credits
+.Li GET /v1/billing?format=credits
+— weekly/monthly allowance %, prepaid dollars, on-demand caps,
+per-product split.
+.It Cm xai.billing_legacy
+.Li GET /v1/billing
+— older monthly-limit / used / history shape.
+.It Cm xai.autotopup
+.Li GET /v1/auto-topup-rule .
+.It Cm xai.settings
+.Li GET /v1/settings
+— remote flags, access gate, display tier.
+.It Cm xai.models
+.Li GET /v1/models .
+.It Cm xai.history
+Composite historical intel
+.Pq not in default Fl a :
+server monthly dollars, current credits snapshot,
+.Pa ~/.grok/logs/unified.jsonl
+billing polls, and local session catalog.
+Still not a server tokens-per-day ledger.
+.It Cm keyinfo
+Developer API
+.Li GET /api-key
+as
+.Va keyinfo.*
+.Pq team_id, acls, blocked flags, redacted key .
+.It Cm xai.mgmt.balance
+Management prepaid balance and postpaid preview.
+.It Cm xai.mgmt.usage
+Management usage analytics for the current month.
+.It Cm xai.mgmt.limits
+Management postpaid spending limits.
+.It Cm xai.mgmt.probe
+Readonly GET audit of management endpoints
+.Pq not in default Fl a .
+.It Cm xai.mgmt.data
+Management data stores.
+Use the
+.Cm data
+verb:
+.Li xaictl data ls Files .
+.Cm ls ,
+.Cm lsl ,
+and
+.Cm size
+are
+.Cm key=value ;
+.Cm cat
+prints metadata keys then the raw body.
+.It Cm xai.buildlog
+Per-turn tokens from
+.Pa ~/.grok/logs/unified.jsonl
+for
+.Fl S
+or
+.Fl -current .
+.It Cm xai.signals
+Harness
+.Pa signals.json
+context-fill for
+.Fl S
+or
+.Fl -current .
+This is not SuperGrok consumer quota.
+.It Cm query / session
+Live inference.
+Output is
+.Va query.N.*
+and
+.Va session.usage.* .
+.It Cm xai.note
+The SuperGrok-not-in-this-API reminder and pointers to
+.Va xai.buildlog
+/
+.Va xai.signals .
+.El
+.Sh OUTPUT
+Lines look like:
+.Bd -literal -offset indent
+keyinfo.team_id=65c1e471-205f-4566-9c5a-07198bcdf4ce
+xai.credits.credit_usage_percent=13
+xai.credits.prepaid_balance_usd=0.00
+xai.mgmt.balance.prepaid_total_usd=-10.00
+xai.buildlog.totals.total_tokens=350
+.Ed
+.Pp
+Money from the proxy is integer cents
+.Pq often JSON Li {"val":N} .
+Both
+.Va *_cents
+and
+.Va *_usd
+are emitted.
+Prepaid/top-up cents may be negative on the wire;
+Grok Build credit USD uses the absolute value unless noted as signed.
+.Sh TOKEN REFRESH
+When the Grok Build access token is missing
+.Va expires_at ,
+hard-expired, or within five minutes of expiry,
+.Nm
+refreshes automatically unless
+.Fl -no-refresh
+is set.
+The algorithm matches Grok Build
+.Ic AuthManager::refresh_chain :
+exclusive
+.Xr flock 2
+on
+.Pa auth.json.lock ,
+sibling adoption, OIDC discovery, refresh-token grant, atomic rewrite
+mode 0600.
+.Sh ENVIRONMENT
+.Bl -tag -width GROK_PRODUCTION_CLI_CHAT_PROXY_BASE_URL
+.It Ev XAI_API_KEY
+Inference API bearer.
+.It Ev XAI_MANAGEMENT_API_KEY
+Management API key.
+.It Ev GROK_HOME
+Root directory for Grok Build config
+.Pq default: Pa ~/.grok .
+.It Ev GROK_AUTH_PATH , Ev XAI_STATUS_AUTH
+Override path to
+.Pa auth.json .
+.It Ev GROK_CLI_CHAT_PROXY_BASE_URL , Ev GROK_PRODUCTION_CLI_CHAT_PROXY_BASE_URL
+Override proxy base URL.
+.It Ev TZ
+Timezone name used when converting timestamps.
+.El
+.Sh FILES
+.Bl -tag -width ~/.grok/auth.json.lockXX
+.It Pa ~/.grok/auth.json
+OIDC session and optional API-key store
+.Pq mode 0600 .
+.It Pa ~/.grok/auth.json.lock
+Advisory lock coordinating multi-process refresh.
+.It Pa ~/.grok/logs/unified.jsonl
+Grok Build unified log
+.Pq buildlog + history .
+.It Pa ~/.grok/sessions/
+Per-session
+.Pa summary.json
+and
+.Pa signals.json .
+.It Pa ~/.config/cxai/grok.conf
+Optional developer-API config
+.Pq Li bearer= / Li management_key= .
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Pp
+.Fl -refresh-only
+exits
+.Dv 0
+on successful refresh or sibling adoption, non-zero on failure.
+An unknown prefix exits non-zero.
+A default dump that skips trees for missing credentials still exits 0.
+.Sh EXAMPLES
+Show remaining weekly allowance and prepaid dollars:
+.Bd -literal -offset indent
+xaictl xai.credits | egrep 'usage|remaining|prepaid|period\\.(start|end)='
+.Ed
+.Pp
+Developer key plus management prepaid:
+.Bd -literal -offset indent
+xaictl keyinfo xai.mgmt.balance
+.Ed
+.Pp
+Force session renewal without waiting for Grok:
+.Bd -literal -offset indent
+xaictl --refresh-only
+.Ed
+.Pp
+One cheap inference call:
+.Bd -literal -offset indent
+xaictl query -Q "Say only hello."
+.Ed
+.Pp
+Current Grok Build session tokens:
+.Bd -literal -offset indent
+xaictl xai.buildlog --current
+xaictl xai.signals --current
+.Ed
+.Pp
+Historical scraps on this host:
+.Bd -literal -offset indent
+xaictl --no-refresh xai.history > /tmp/xai-history.txt
+.Ed
+.Sh SEE ALSO
+.Lk https://cli-chat-proxy.grok.com/v1 ,
+.Pa docs/xai-status-api.md
+.Pq formal HTTP/OIDC spec ,
+.Pa docs/journal.md
+.Pq grok-build perusal log ,
+Grok Build sources under
+.Pa crates/codegen/xai-grok-shell/src/extensions/billing.rs
+and
+.Pa crates/codegen/xai-grok-shell/src/auth/oidc/ .
+.Sh AUTHORS
+.An Todd T. Fries Aq Mt todd@fries.net
+and Grok Build tooling notes.
+.Sh CAVEATS
+.Bl -bullet
+.It
+Copying the same refresh token to two machines and refreshing concurrently
+can yield
+.Li invalid_grant .
+Prefer one login per machine, or serialize refresh against a shared
+.Pa auth.json .
+.It
+.Dq Tokens left
+in the Grok UI is a percent of the period allowance, not a raw
+remaining-token counter.
+.It
+SuperGrok consumer quota mail
+.Pq e.g. 90%
+is not exposed by the developer or management APIs.
+.It
+Requires
+.Xr perl 1
+with
+.Sy JSON::PP ,
+.Sy LWP::UserAgent ,
+.Sy URI::Escape ,
+and
+.Sy Date::Manip .
+.El

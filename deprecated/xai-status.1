@@ -1,0 +1,375 @@
+.\" Copyright (c) 2026
+.\"
+.\" Permission to use, copy, modify, and distribute this software for any
+.\" purpose with or without fee is hereby granted.
+.\"
+.Dd $Mdocdate: August 11 2026 $
+.Dt XAI-STATUS 1
+.Os
+.Sh NAME
+.Nm xai-status
+.Nd dump xAI / Grok Build account status as sysctl-style key/value lines
+.Sh SYNOPSIS
+.Nm xai-status.pl
+.Op Fl jlr
+.Op Fl a Ar path
+.Op Fl b Ar url
+.Op Fl s Ar section
+.Op Fl t Ar secs
+.Op Fl -refresh
+.Op Fl -no-refresh
+.Op Fl -refresh-only
+.Op Fl -json
+.Op Fl -list
+.Op Fl -help
+.Sh DESCRIPTION
+.Nm
+queries the same
+.Sy cli-chat-proxy
+HTTP endpoints that Grok Build uses to display coding-credit usage, prepaid
+balance, subscription tier, remote settings, and related account status.
+Output is one
+.Cm key=value
+line per field
+.Pq sysctl-like ,
+suitable for
+.Xr grep 1 ,
+.Xr awk 1 ,
+or machine consumption.
+.Pp
+Credentials are read from
+.Pa ~/.grok/auth.json
+.Pq the same file written by Ic grok login .
+The script can refresh an OIDC session independently of a running Grok
+process: it performs the standard refresh-token grant against
+.Lk https://auth.x.ai ,
+takes an advisory lock on
+.Pa auth.json.lock ,
+and writes the new access and refresh tokens back to
+.Pa auth.json
+so every Grok or
+.Nm
+instance sharing that home directory can adopt them.
+.Pp
+Timestamps in the dump are converted to the system local timezone with
+the Perl
+.Sy Date::Manip
+module
+and printed as:
+.Bd -literal -offset indent
+YYYYMMDD HHMMSS.<ms> ±HH:MM
+.Ed
+.Pp
+For example
+.Dl 20260810 204254.415 -05:00
+.Pp
+Each timestamp key also emits:
+.Bl -tag -width Ds -offset indent
+.It Va key.raw
+Original RFC 3339 string from the API or auth store.
+.It Va key.unix
+Unix epoch seconds
+.Pq UTC .
+.El
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl s Ar section , Fl -section Ar section
+Limit output to one section.
+May be repeated.
+Default is all sections.
+Valid names:
+.Cm auth ,
+.Cm user ,
+.Cm subscription ,
+.Cm credits ,
+.Cm legacy ,
+.Cm autotopup ,
+.Cm settings ,
+.Cm models .
+The alias
+.Cm billing
+expands to
+.Cm credits
+plus
+.Cm legacy .
+.It Fl r , Fl -refresh
+Force an OIDC token refresh before fetching status
+.Pq always rewrites auth.json on success .
+.It Fl -no-refresh
+Never call the IdP and never rewrite
+.Pa auth.json .
+Use a still-valid access token only.
+.It Fl -refresh-only
+Refresh
+.Pq or adopt a sibling token already on disk ,
+print refresh-related keys, and exit without billing/status GETs.
+.It Fl j , Fl -json
+Also emit a compact JSON blob per section as
+.Va prefix.json .
+.It Fl a Ar path , Fl -auth Ar path
+Path to
+.Pa auth.json
+.Pq default: Pa ~/.grok/auth.json
+or
+.Ev GROK_HOME Ns /auth.json .
+.It Fl b Ar url , Fl -base Ar url
+cli-chat-proxy base URL
+.Pq default: Li https://cli-chat-proxy.grok.com/v1 .
+.It Fl t Ar secs , Fl -timeout Ar secs
+HTTP timeout in seconds
+.Pq default: 20 .
+.It Fl l , Fl -list
+List section names and exit.
+.It Fl h , Fl -help
+Print a short usage summary and exit.
+.El
+.Sh SECTIONS
+.Bl -tag -width subscriptionXX
+.It Cm auth
+Local credential metadata from
+.Pa auth.json
+.Pq no secrets printed :
+scope, mode, user id, email, principal, issuer, expiry, proxy base.
+Also emits
+.Va xai.date.format
+and
+.Va xai.date.local_tz .
+.It Cm user
+.Li GET /v1/user
+— profile, principal, team/org, block reasons,
+.Va hasGrokCodeAccess .
+.It Cm subscription
+.Li GET /v1/user?include=subscription
+— same as
+.Cm user
+plus live
+.Va subscriptionTier .
+.It Cm credits
+.Li GET /v1/billing?format=credits
+— preferred credits shape used by Grok's
+.Li /usage
+UI:
+usage percent, weekly/monthly period, prepaid balance, on-demand caps,
+per-product usage
+.Pq GrokBuild / GrokChat ,
+unified-billing flag.
+.It Cm legacy
+.Li GET /v1/billing
+— older monthly-limit / used / history shape.
+.It Cm autotopup
+.Li GET /v1/auto-topup-rule
+— auto top-up enablement and dollar amounts
+.Pq cents; often negative ledger sign; absolute USD also printed .
+.It Cm settings
+.Li GET /v1/settings
+— remote feature flags, access gate, display tier, announcements, …
+.It Cm models
+.Li GET /v1/models
+— model catalog available to this credential.
+.It Cm history
+Composite historical intel
+.Pq not included in the default section list :
+server monthly dollar history from
+.Li GET /billing ,
+current credits snapshot,
+a full change timeline of prepaid balance and usage percent reconstructed from
+.Pa ~/.grok/logs/unified.jsonl
+billing polls
+.Pq day and hour buckets, fast-burn windows ,
+and a catalog of local sessions from
+.Pa ~/.grok/sessions
+.Pq summary + signals: turns, models, context-window tokens by day .
+Still
+.Em not
+a server tokens-per-day ledger.
+.El
+.Sh OUTPUT
+Lines look like:
+.Bd -literal -offset indent
+xai.credits.credit_usage_percent=13
+xai.credits.credit_remaining_percent=87
+xai.credits.period.end=20260817 204254.415 -05:00
+xai.credits.period.end.raw=2026-08-18T01:42:54.415546+00:00
+xai.credits.prepaid_balance_usd=0.00
+xai.subscription.subscription_tier=XPremiumPlus
+.Ed
+.Pp
+High-signal prefixes:
+.Bl -tag -width xai.billing_legacyXX -offset indent
+.It Va xai.auth.*
+Local session / refresh state.
+.It Va xai.credits.*
+Weekly
+.Pq or monthly
+allowance usage and prepaid dollars
+.Pq what the Grok credit bar shows .
+.It Va xai.billing_legacy.*
+Legacy monthly dollar tracker.
+.It Va xai.autotopup.*
+Auto top-up rule.
+.It Va xai.subscription.*
+Live subscription tier from the backend.
+.It Va xai.settings.*
+Remote settings / access gate / display tier.
+.It Va xai.models.*
+Available models.
+.El
+.Pp
+Money fields from the API are integer
+.Em cents
+.Pq often as JSON Li {"val":N} .
+The script emits both
+.Va *_cents
+and
+.Va *_usd .
+Prepaid and top-up amounts may be stored as
+.Em negative
+cents on the wire; USD display uses the absolute value unless noted as signed
+remaining.
+.Sh TOKEN REFRESH
+When the access token is missing
+.Va expires_at ,
+hard-expired, or within five minutes of expiry
+.Pq same early-invalidation buffer as Grok Build ,
+.Nm
+refreshes automatically unless
+.Fl -no-refresh
+is set.
+.Pp
+Refresh algorithm
+.Pq matches Grok Build Ic AuthManager::refresh_chain :
+.Bl -enum
+.It
+Open and
+.Xr flock 2
+.Pa auth.json.lock
+exclusively.
+.It
+Re-read
+.Pa auth.json .
+If a sibling process already wrote a still-valid access token, adopt it
+and skip the IdP.
+.It
+.Li GET {issuer}/.well-known/openid-configuration
+.It
+.Li POST {token_endpoint}
+with
+.Li grant_type=refresh_token ,
+.Li refresh_token ,
+.Li client_id ,
+and optional
+.Li principal_type
+/
+.Li principal_id .
+.It
+Write the new
+.Va key
+.Pq access token ,
+.Va expires_at ,
+and rotated
+.Va refresh_token
+.Pq if the IdP returned one
+back into
+.Pa auth.json
+under the same lock
+.Pq atomic temp + rename, mode 0600 .
+.El
+.Pp
+Bearer and refresh token values are
+.Em never
+printed; only presence flags and expiry metadata are emitted.
+.Sh ENVIRONMENT
+.Bl -tag -width GROK_PRODUCTION_CLI_CHAT_PROXY_BASE_URL
+.It Ev GROK_HOME
+Root directory for config
+.Pq default: Pa ~/.grok .
+.It Ev GROK_AUTH_PATH , Ev XAI_STATUS_AUTH
+Override path to
+.Pa auth.json .
+.It Ev GROK_CLI_CHAT_PROXY_BASE_URL , Ev GROK_PRODUCTION_CLI_CHAT_PROXY_BASE_URL
+Override proxy base URL.
+.It Ev TZ
+Timezone name used when converting timestamps
+.Pq also discovered from Pa /etc/localtime
+symlink when unset .
+.El
+.Sh FILES
+.Bl -tag -width ~/.grok/auth.json.lockXX
+.It Pa ~/.grok/auth.json
+OIDC session and optional API-key store
+.Pq mode 0600 .
+.It Pa ~/.grok/auth.json.lock
+Advisory lock coordinating multi-process refresh.
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Pp
+.Fl -refresh-only
+exits
+.Dv 0
+on successful refresh or sibling adoption, non-zero on failure.
+.Sh EXAMPLES
+Show remaining weekly allowance and prepaid dollars:
+.Bd -literal -offset indent
+xai-status.pl -s credits | egrep 'usage|remaining|prepaid|period\\.(start|end)='
+.Ed
+.Pp
+Dump every historical scrap this host can assemble:
+.Bd -literal -offset indent
+xai-status.pl --no-refresh -s history > /tmp/xai-history.txt
+egrep 'monthly|prepaid\\.(max|burn|spent)|by_day|fast_burns|sessions\\.by_day' \\
+  /tmp/xai-history.txt
+.Ed
+.Pp
+Force session renewal without waiting for Grok:
+.Bd -literal -offset indent
+xai-status.pl --refresh-only
+.Ed
+.Pp
+Subscription tier plus credits:
+.Bd -literal -offset indent
+xai-status.pl -s subscription -s credits \e
+  | egrep 'tier|usage_percent|prepaid|period.end='
+.Ed
+.Pp
+Read the formal HTTP/OIDC API reference used by this tool:
+.Bd -literal -offset indent
+less scripts/xai-status-api.md
+.Ed
+.Sh SEE ALSO
+.Lk https://cli-chat-proxy.grok.com/v1
+.Pq production proxy base ,
+.Pa scripts/xai-status-api.md
+.Pq formal API specification for implementers ,
+Grok Build sources under
+.Pa crates/codegen/xai-grok-shell/src/extensions/billing.rs
+and
+.Pa crates/codegen/xai-grok-shell/src/auth/oidc/ .
+.Sh AUTHORS
+.An Grok Build tooling .
+.Sh CAVEATS
+.Bl -bullet
+.It
+Copying the same refresh token to two machines and refreshing concurrently
+can yield
+.Li invalid_grant
+.Pq IdP rotation reuse detection .
+Prefer one login per machine, or serialize refresh against a shared
+.Pa auth.json .
+.It
+.Dq Tokens left
+in the UI is a
+.Em percent of the period allowance ,
+not a raw remaining-token counter.
+Extra purchased dollars appear as
+.Va prepaid_balance_* .
+.It
+Requires
+.Xr perl 1
+with
+.Sy JSON::PP ,
+.Sy LWP::UserAgent ,
+.Sy URI::Escape ,
+and
+.Sy Date::Manip .
+.El

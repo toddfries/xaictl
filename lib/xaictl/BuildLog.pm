@@ -1,4 +1,4 @@
-package GrokAPI::BuildLog;
+package xaictl::BuildLog;
 
 use strict;
 use warnings;
@@ -76,19 +76,48 @@ sub scan_log {
 }
 
 sub format_totals {
-	my ($class, $totals, $label) = @_;
+	my ($class, $totals, $prefix) = @_;
 	$totals //= $class->empty_totals();
-	$label  //= 'build_session_total';
-	return sprintf(
-		"%s: turns=%d prompt_tokens=%d completion_tokens=%d cached_prompt_tokens=%d reasoning_tokens=%d total_tokens=%d",
-		$label,
-		$totals->{turn_count}           // 0,
-		$totals->{prompt_tokens}        // 0,
-		$totals->{completion_tokens}    // 0,
-		$totals->{cached_prompt_tokens} // 0,
-		$totals->{reasoning_tokens}     // 0,
-		$totals->{total_tokens}         // 0,
-	);
+	$prefix //= 'xai.buildlog.totals';
+	return join "\n",
+		"$prefix.turns=" . ($totals->{turn_count} // 0),
+		"$prefix.prompt_tokens=" . ($totals->{prompt_tokens} // 0),
+		"$prefix.completion_tokens=" . ($totals->{completion_tokens} // 0),
+		"$prefix.cached_prompt_tokens=" . ($totals->{cached_prompt_tokens} // 0),
+		"$prefix.reasoning_tokens=" . ($totals->{reasoning_tokens} // 0),
+		"$prefix.total_tokens=" . ($totals->{total_tokens} // 0),
+		'';
+}
+
+sub emit_report {
+	my ($class, $kv, %args) = @_;
+	my $session_id = $args{session_id} // '';
+	my $log_path   = $args{log_path}   // $class->default_log_path();
+	my $turns      = $args{turns}      // [];
+	my $totals     = $args{totals}     // $class->empty_totals();
+	my $p          = $args{prefix}     // 'xai.buildlog';
+
+	$kv->kv("$p.session_id", $session_id);
+	$kv->kv("$p.log_file",   $log_path);
+	$kv->kv("$p.turns",      scalar @{$turns});
+	for my $i (0 .. $#{$turns}) {
+		my $rec = $turns->[$i];
+		my $ctx = $rec->{ctx} // {};
+		my $tp  = "$p.turn.$i";
+		$kv->kv("$tp.loop_index",          $ctx->{loop_index});
+		$kv->kv("$tp.timestamp",           $rec->{timestamp});
+		$kv->kv("$tp.prompt_tokens",       $ctx->{prompt_tokens});
+		$kv->kv("$tp.completion_tokens",   $ctx->{completion_tokens});
+		$kv->kv("$tp.cached_prompt_tokens",$ctx->{cached_prompt_tokens});
+		$kv->kv("$tp.reasoning_tokens",    $ctx->{reasoning_tokens});
+	}
+	$kv->kv("$p.totals.turns",                 $totals->{turn_count});
+	$kv->kv("$p.totals.prompt_tokens",         $totals->{prompt_tokens});
+	$kv->kv("$p.totals.completion_tokens",     $totals->{completion_tokens});
+	$kv->kv("$p.totals.cached_prompt_tokens",  $totals->{cached_prompt_tokens});
+	$kv->kv("$p.totals.reasoning_tokens",      $totals->{reasoning_tokens});
+	$kv->kv("$p.totals.total_tokens",          $totals->{total_tokens});
+	return $kv;
 }
 
 sub read_active_session_id {

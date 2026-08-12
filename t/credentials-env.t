@@ -7,9 +7,9 @@ use Test::More tests => 4;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
-use GrokAPI::Config;
+use xaictl::Config;
 
-my $class = 'GrokAPI::Config';
+my $class = 'xaictl::Config';
 local $ENV{XAI_API_KEY} = 'xai-test-inference-key-012345678901234567890';
 local $ENV{XAI_MANAGEMENT_API_KEY} = 'xai-test-management-key-012345678901234567890';
 

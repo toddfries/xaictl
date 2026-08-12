@@ -7,9 +7,9 @@ use Test::More tests => 6;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
-use GrokAPI::BuildLog;
+use xaictl::BuildLog;
 
-my $class = 'GrokAPI::BuildLog';
+my $class = 'xaictl::BuildLog';
 
 my $line = '{"ts":"2026-06-26T11:00:00Z","sid":"sess-1","msg":"shell.turn.inference_done","ctx":{"loop_index":1,"prompt_tokens":100,"completion_tokens":20,"cached_prompt_tokens":50,"reasoning_tokens":5}}';
 
@@ -27,6 +27,6 @@ $class->accumulate_turn($totals, {
 
 is($totals->{turn_count}, 2, 'turn count');
 is($totals->{total_tokens}, 350, 'total tokens');
-like($class->format_totals($totals), qr/build_session_total:.*total_tokens=350/, 'format');
+like($class->format_totals($totals), qr/xai\.buildlog\.totals\.total_tokens=350/, 'format');
 
 done_testing();

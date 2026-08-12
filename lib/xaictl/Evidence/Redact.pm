@@ -1,4 +1,4 @@
-package GrokAPI::Evidence::Redact;
+package xaictl::Evidence::Redact;
 
 use strict;
 use warnings;

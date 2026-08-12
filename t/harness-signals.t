@@ -8,9 +8,9 @@ use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
 use JSON;
-use GrokAPI::Harness::Signals;
+use xaictl::Harness::Signals;
 
-my $class = 'GrokAPI::Harness::Signals';
+my $class = 'xaictl::Harness::Signals';
 my $fixture = "$Bin/fixtures/signals.json";
 
 open my $fh, '<', $fixture or die "fixture missing: $fixture\n";
@@ -26,15 +26,15 @@ my $out = $class->format_report(
 	session_id => 'fixture-session',
 	path         => $fixture,
 );
-like($out, qr/contextWindowUsage:/, 'format includes usage percent');
-like($out, qr/Grok Build harness signals/, 'format header');
+like($out, qr/xai\.signals\.context_window_usage=42\.5/, 'format includes usage percent');
+like($out, qr/xai\.signals\.session_id=fixture-session/, 'format session id');
 
 SKIP: {
 	skip 'GROK_SIGNALS_LIVE not set', 2 unless $ENV{GROK_SIGNALS_LIVE};
 	my $sid = $ENV{GROK_GOAL_SESSION};
 	if (!$sid) {
-		require GrokAPI::BuildLog;
-		$sid = GrokAPI::BuildLog->read_active_session_id();
+		require xaictl::BuildLog;
+		$sid = xaictl::BuildLog->read_active_session_id();
 	}
 	skip 'no live session id', 2 unless $sid;
 	my ($live, $path) = $class->read_signals($sid);

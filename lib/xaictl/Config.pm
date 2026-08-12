@@ -1,4 +1,4 @@
-package GrokAPI::Config;
+package xaictl::Config;
 
 use strict;
 use warnings;

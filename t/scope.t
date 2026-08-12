@@ -21,7 +21,7 @@ sub slurp_file {
 my @grok = ls_files($grokapi);
 my @xai  = ls_files($xaiapi);
 
-ok(grep { $_ eq 'grok-sanity' } @grok, 'grokapi repo has grok-sanity');
+ok(grep { $_ eq 'xaictl' } @grok, 'grokapi repo has xaictl');
 ok(grep { $_ eq 'lib/xAI/API.pm' } @xai, 'xAI-API repo has API.pm');
 
 my @bad_paths = grep { /\.grok\/|\.playground\/|grok\.conf/ } @grok, @xai;

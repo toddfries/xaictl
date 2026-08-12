@@ -1,4 +1,4 @@
-package GrokAPI::Stats;
+package xaictl::Stats;
 
 use strict;
 use warnings;
@@ -57,20 +57,18 @@ sub ticks_to_usd {
 }
 
 sub format_usage {
-	my ($class, $usage, $label) = @_;
-	$usage //= {};
-	$label //= 'usage';
+	my ($class, $usage, $prefix) = @_;
+	$usage  //= {};
+	$prefix //= 'usage';
 	my $ticks = $usage->{cost_in_usd_ticks} // 0;
 	my $usd   = $class->ticks_to_usd($ticks);
-	return sprintf(
-		"%s: prompt_tokens=%d completion_tokens=%d total_tokens=%d cost_in_usd_ticks=%d cost_usd=\$%.8f",
-		$label,
-		$usage->{prompt_tokens}     // 0,
-		$usage->{completion_tokens} // 0,
-		$usage->{total_tokens}      // 0,
-		$ticks,
-		$usd,
-	);
+	return join "\n",
+		"$prefix.prompt_tokens=" . ($usage->{prompt_tokens} // 0),
+		"$prefix.completion_tokens=" . ($usage->{completion_tokens} // 0),
+		"$prefix.total_tokens=" . ($usage->{total_tokens} // 0),
+		"$prefix.cost_in_usd_ticks=$ticks",
+		sprintf('%s.cost_usd=%.8f', $prefix, $usd),
+		'';
 }
 
 sub format_totals {

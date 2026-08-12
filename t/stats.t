@@ -8,10 +8,10 @@ use FindBin qw($Bin);
 use lib "$Bin/../lib";
 use lib "$Bin/../../xAI-API/lib";
 
-use GrokAPI::Stats;
+use xaictl::Stats;
 use xAI::API;
 
-my $class = 'GrokAPI::Stats';
+my $class = 'xaictl::Stats';
 
 my $sample = {
 	usage => {
@@ -41,8 +41,8 @@ my $usd = $class->ticks_to_usd(37756000);
 ok(abs($usd - 0.0037756) < 0.0000001, 'converts ticks to USD');
 
 my $line = $class->format_usage($usage, 'usage');
-like($line, qr/cost_in_usd_ticks=37756000/, 'format includes raw ticks');
-like($line, qr/cost_usd=\$0\.00377560/, 'format includes USD decimal');
+like($line, qr/usage\.cost_in_usd_ticks=37756000/, 'format includes raw ticks');
+like($line, qr/usage\.cost_usd=0\.00377560/, 'format includes USD decimal');
 
 my $totals = $class->empty_totals();
 $class->accumulate($totals, $usage);

@@ -1,0 +1,763 @@
+#!/usr/bin/env perl
+
+# Copyright (c) 2026 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+use strict;
+use warnings;
+use utf8;
+
+use FindBin qw($Bin);
+use lib "$Bin/lib";
+use lib "$Bin/../xAI-API/lib";
+
+use Getopt::Long qw(:config no_ignore_case bundling);
+use Time::HiRes  qw(gettimeofday tv_interval);
+use File::Spec;
+use xAI::API;
+use xaictl::Kv;
+use xaictl::Config;
+use xaictl::Stats;
+use xaictl::BuildLog;
+use xaictl::Harness::Signals;
+use xaictl::TeamContext;
+use xaictl::Management::Report;
+use xaictl::Management::Probe;
+use xaictl::Management::Data;
+use xaictl::Proxy;
+
+binmode STDOUT, ':encoding(UTF-8)';
+binmode STDERR, ':encoding(UTF-8)';
+
+# ---------------------------------------------------------------------------
+# Section catalog
+# ---------------------------------------------------------------------------
+# name => { prefixes => [...], default => 0|1, explicit => 0|1, source => ... }
+my %SECTIONS = (
+	auth         => { prefixes => [qw(xai.auth xai.date xai.proxy)], default => 1, source => 'proxy' },
+	user         => { prefixes => [qw(xai.user)],                   default => 1, source => 'proxy' },
+	subscription => { prefixes => [qw(xai.subscription)],           default => 1, source => 'proxy' },
+	credits      => { prefixes => [qw(xai.credits)],                default => 1, source => 'proxy' },
+	legacy       => { prefixes => [qw(xai.billing_legacy)],         default => 1, source => 'proxy' },
+	autotopup    => { prefixes => [qw(xai.autotopup)],              default => 1, source => 'proxy' },
+	settings     => { prefixes => [qw(xai.settings)],               default => 1, source => 'proxy' },
+	models       => { prefixes => [qw(xai.models)],                 default => 1, source => 'proxy' },
+	history      => { prefixes => [qw(xai.history)],                default => 0, source => 'proxy' },
+	keyinfo      => { prefixes => [qw(keyinfo)],                    default => 1, source => 'inference' },
+	balance      => { prefixes => [qw(xai.mgmt.balance xai.mgmt.preview)], default => 1, source => 'mgmt' },
+	usage        => { prefixes => [qw(xai.mgmt.usage)],             default => 1, source => 'mgmt' },
+	limits       => { prefixes => [qw(xai.mgmt.limits)],            default => 1, source => 'mgmt' },
+	probe        => { prefixes => [qw(xai.mgmt.probe)],             default => 0, source => 'mgmt' },
+	data         => { prefixes => [qw(xai.mgmt.data)],              default => 0, source => 'mgmt', explicit => 1 },
+	buildlog     => { prefixes => [qw(xai.buildlog)],               default => 0, source => 'local' },
+	signals      => { prefixes => [qw(xai.signals)],                default => 0, source => 'local' },
+	query        => { prefixes => [qw(query)],                      default => 0, source => 'inference', explicit => 1 },
+	session      => { prefixes => [qw(session query)],              default => 0, source => 'inference', explicit => 1 },
+	note         => { prefixes => [qw(xai.note)],                   default => 1, source => 'local' },
+);
+
+my %ALIAS = (
+	billing      => [qw(credits legacy)],
+	'mgmt-probe' => [qw(probe)],
+	mgmtprobe    => [qw(probe)],
+	prepaid      => [qw(balance)],
+);
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+my $opt_all      = 0;
+my @opt_sections;
+my $opt_json     = 0;
+my $opt_auth;
+my $opt_base;
+my $opt_timeout  = 20;
+my $opt_list     = 0;
+my $opt_help     = 0;
+my $force_refresh = 0;
+my $no_refresh    = 0;
+my $refresh_only  = 0;
+my $history_max_sessions = 200;
+
+my $opt_config    = xaictl::Config->default_config_path();
+my $opt_cfg_sec   = 'creds';
+my $opt_mgmt_sec  = 'mgmt';
+my $opt_model     = 'grok-4-1-fast-non-reasoning';
+my $opt_mgmt_key;
+my $opt_team_id;
+my $opt_query;
+my @opt_queries;
+my $opt_session_id;
+my $opt_log_file;
+my $opt_current   = 0;
+my $opt_debug     = 0;
+
+GetOptions(
+	'all|a'          => \$opt_all,
+	'section|s=s@'   => \@opt_sections,
+	'json|j'         => \$opt_json,
+	'auth=s'         => \$opt_auth,
+	'base|b=s'       => \$opt_base,
+	'timeout|t=i'    => \$opt_timeout,
+	'list|l'         => \$opt_list,
+	'refresh|r'      => \$force_refresh,
+	'no-refresh'     => \$no_refresh,
+	'refresh-only'   => \$refresh_only,
+	'history-max-sessions=i' => \$history_max_sessions,
+	'config|c=s'     => \$opt_config,
+	'config-section=s' => \$opt_cfg_sec,
+	'mgmt-section=s' => \$opt_mgmt_sec,
+	'model|m=s'      => \$opt_model,
+	'management|M=s' => \$opt_mgmt_key,
+	'team-id|T=s'    => \$opt_team_id,
+	'query|Q=s'      => \$opt_query,
+	'queries=s@'     => \@opt_queries,
+	'session-id|S=s' => \$opt_session_id,
+	'log-file=s'     => \$opt_log_file,
+	'current'        => \$opt_current,
+	'debug|d'        => \$opt_debug,
+	'help|h'         => \$opt_help,
+) or usage(2);
+
+die "cannot combine --refresh and --no-refresh\n" if $force_refresh && $no_refresh;
+$force_refresh = 1 if $refresh_only;
+
+usage(0) if $opt_help;
+
+if ($opt_list) {
+	print "$_\n" for sort keys %SECTIONS;
+	exit 0;
+}
+
+push @opt_queries, $opt_query if defined $opt_query && $opt_query ne '';
+
+my @selectors = (@opt_sections, @ARGV);
+
+# First remaining token may be an explicit verb (query/session/data).
+my $explicit;
+if (@selectors && $selectors[0] =~ /^(query|session|data|mgmt-probe|probe)$/i) {
+	$explicit = lc $selectors[0];
+	$explicit = 'probe' if $explicit eq 'mgmt-probe';
+	shift @selectors;
+	if (@ARGV && (lc($ARGV[0]) eq $explicit || (lc($ARGV[0]) eq 'mgmt-probe' && $explicit eq 'probe'))) {
+		shift @ARGV;
+	}
+}
+
+my $kv = xaictl::Kv->new(json_raw => $opt_json);
+
+if ($refresh_only) {
+	eval {
+		my $proxy = make_proxy($kv);
+		my $info = $proxy->dump_refresh();
+		$kv->print_all();
+		exit($info && $info->{ok} ? 0 : 1);
+	};
+	if ($@) {
+		my $err = $@;
+		$err =~ s/\s+\z//;
+		$kv->kv('xai.auth.refresh.ok', 'false');
+		$kv->kv('xai.auth.refresh.error', $err);
+		$kv->print_all();
+		exit 1;
+	}
+}
+
+if ($explicit) {
+	run_explicit($explicit, $kv, @selectors);
+	$kv->print_all();
+	exit 0;
+}
+
+# Prefix / section selection.
+my @want_names;
+my @filter_prefixes;
+if ($opt_all || !@selectors) {
+	@want_names = grep { $SECTIONS{$_}{default} } sort keys %SECTIONS;
+} else {
+	for my $sel (@selectors) {
+		my ($names, $pfx) = resolve_selector($sel);
+		push @want_names, @$names;
+		push @filter_prefixes, $pfx if defined $pfx;
+	}
+}
+
+my %seen;
+@want_names = grep { !$seen{$_}++ } @want_names;
+
+# Never auto-run token-burning or write-ish verbs.
+@want_names = grep { !$SECTIONS{$_}{explicit} } @want_names;
+
+run_sections($kv, \@want_names);
+
+if (@filter_prefixes && !$opt_all) {
+	$kv->filter_prefixes(@filter_prefixes);
+}
+$kv->print_all();
+exit 0;
+
+# ===========================================================================
+# Selection
+# ===========================================================================
+sub resolve_selector {
+	my ($sel) = @_;
+	$sel = '' unless defined $sel;
+	$sel =~ s/^\s+|\s+$//g;
+
+	if ($ALIAS{$sel}) {
+		return ($ALIAS{$sel}, undef);
+	}
+	if ($SECTIONS{$sel}) {
+		# Exact section name: emit the whole tree (all of its prefixes).
+		return ([$sel], undef);
+	}
+
+	# Prefix form: xai.credits, keyinfo.team_id, xai.mgmt.balance, ...
+	my @names;
+	for my $name (sort keys %SECTIONS) {
+		for my $p (@{ $SECTIONS{$name}{prefixes} }) {
+			if ($sel eq $p || index($sel, $p . '.') == 0 || index($p, $sel . '.') == 0 || $sel eq $name) {
+				push @names, $name;
+				last;
+			}
+		}
+		# also match section name as prefix of selector
+		if ($sel eq $name || index($sel, $name . '.') == 0) {
+			push @names, $name unless grep { $_ eq $name } @names;
+		}
+	}
+	if (!@names && $sel =~ /^xai\.mgmt(?:\.|$)/) {
+		@names = qw(balance usage limits);
+	}
+	if (!@names && $sel eq 'xai') {
+		@names = grep { $SECTIONS{$_}{default} } sort keys %SECTIONS;
+	}
+	die "unknown selector '$sel' (try -l)\n" unless @names;
+	return (\@names, $sel);
+}
+
+# ===========================================================================
+# Creds / API handles
+# ===========================================================================
+sub read_conf {
+	return (-f $opt_config) ? xaictl::Config->read_config($opt_config) : undef;
+}
+
+sub inference_bearer {
+	my $conf = read_conf();
+	return xaictl::Config->bearer_token(config => $conf, section => $opt_cfg_sec);
+}
+
+sub management_key {
+	my $conf = read_conf();
+	return $opt_mgmt_key // xaictl::Config->management_key(
+		config => $conf, mgmt_section => $opt_mgmt_sec,
+	);
+}
+
+sub make_inference_api {
+	my ($bearer) = @_;
+	return xAI::API->new(
+		bearer_token => $bearer,
+		model        => $opt_model,
+		debug        => $opt_debug,
+	);
+}
+
+sub make_management_api {
+	my ($key) = @_;
+	return xAI::API->new_management(
+		bearer_token => $key,
+		debug        => $opt_debug,
+	);
+}
+
+sub make_proxy {
+	my ($kv_obj) = @_;
+	return xaictl::Proxy->new(
+		kv        => $kv_obj,
+		json_raw  => $opt_json,
+		auth_path => $opt_auth,
+		proxy_base=> $opt_base,
+		timeout   => $opt_timeout,
+		force_refresh => $force_refresh,
+		no_refresh    => $no_refresh,
+		history_max_sessions => $history_max_sessions,
+	);
+}
+
+sub team_id_for_mgmt {
+	my ($bearer) = @_;
+	return xaictl::TeamContext->team_id_for_mgmt(
+		explicit   => $opt_team_id,
+		bearer     => $bearer,
+		keyinfo_cb => sub {
+			my $api = make_inference_api($bearer);
+			return $api->keyinfo();
+		},
+	);
+}
+
+sub resolve_session_id {
+	my $session_id = $opt_session_id;
+	if ($opt_current) {
+		$session_id = xaictl::BuildLog->read_active_session_id();
+		die "No active session; pass -S <session_id>\n"
+			unless defined $session_id && $session_id ne '';
+	}
+	return $session_id;
+}
+
+# ===========================================================================
+# Dump sections (best-effort for default -a)
+# ===========================================================================
+sub run_sections {
+	my ($kv, $names) = @_;
+	my @names = @{$names};
+
+	my @proxy = grep { $SECTIONS{$_}{source} eq 'proxy' } @names;
+	if (@proxy) {
+		eval {
+			my $proxy = make_proxy($kv);
+			$proxy->dump_sections(@proxy);
+			1;
+		} or do {
+			my $err = $@;
+			$err =~ s/\s+\z//;
+			$kv->kv('xai.proxy.error', $err);
+		};
+	}
+
+	for my $name (@names) {
+		next if $SECTIONS{$name}{source} eq 'proxy';
+		eval { run_one_section($kv, $name); 1 } or do {
+			my $err = $@;
+			$err =~ s/\s+\z//;
+			my $pfx = $SECTIONS{$name}{prefixes}[0];
+			$kv->kv("$pfx.available", 'false');
+			$kv->kv("$pfx.error", $err);
+		};
+	}
+}
+
+sub run_one_section {
+	my ($kv, $name) = @_;
+	if ($name eq 'keyinfo') {
+		emit_keyinfo($kv);
+	} elsif ($name eq 'balance') {
+		emit_balance($kv);
+	} elsif ($name eq 'usage') {
+		emit_usage($kv);
+	} elsif ($name eq 'limits') {
+		emit_limits($kv);
+	} elsif ($name eq 'probe') {
+		emit_probe($kv);
+	} elsif ($name eq 'buildlog') {
+		emit_buildlog($kv);
+	} elsif ($name eq 'signals') {
+		emit_signals($kv);
+	} elsif ($name eq 'note') {
+		xaictl::Management::Report->emit_limits_note($kv);
+	}
+}
+
+sub emit_keyinfo {
+	my ($kv) = @_;
+	my $bearer = inference_bearer();
+	unless (defined $bearer && $bearer ne '') {
+		die "No bearer token: set XAI_API_KEY or add bearer= to [$opt_cfg_sec] in $opt_config\n";
+	}
+	my $api  = make_inference_api($bearer);
+	my $info = $api->keyinfo();
+	my $p    = 'keyinfo';
+	$kv->kv("$p.available", 'true');
+	for my $field (qw(
+		api_key_id redacted_api_key name team_id user_id
+		api_key_blocked api_key_disabled team_blocked
+		create_time modify_time modified_by
+	)) {
+		$kv->kv("$p.$field", $info->{$field}) if exists $info->{$field} || defined $info->{$field};
+	}
+	if (defined $info->{acls} && ref $info->{acls} eq 'ARRAY') {
+		$kv->kv("$p.acls.count", scalar @{ $info->{acls} });
+		for my $i (0 .. $#{ $info->{acls} }) {
+			$kv->kv("$p.acls.$i", $info->{acls}[$i]);
+		}
+	}
+}
+
+sub emit_balance {
+	my ($kv) = @_;
+	my $mgmt = management_key();
+	die "No management key: set XAI_MANAGEMENT_API_KEY or add management_key= to [$opt_mgmt_sec] in $opt_config\n"
+		unless defined $mgmt && $mgmt ne '';
+	my $bearer = inference_bearer();
+	my $team_id = team_id_for_mgmt($bearer);
+	my $api     = make_management_api($mgmt);
+	my $bal     = $api->prepaid_balance($team_id);
+	my $prev    = eval { $api->postpaid_preview($team_id); };
+	xaictl::Management::Report->emit_balance(
+		$kv,
+		team_id => $team_id,
+		balance => $bal,
+		preview => $prev,
+		no_note => 1,
+	);
+}
+
+sub emit_usage {
+	my ($kv) = @_;
+	my $mgmt = management_key();
+	die "No management key: set XAI_MANAGEMENT_API_KEY or add management_key= to [$opt_mgmt_sec] in $opt_config\n"
+		unless defined $mgmt && $mgmt ne '';
+	my $bearer = inference_bearer();
+	my $team_id = team_id_for_mgmt($bearer);
+	my ($sec, $min, $hour, $mday, $mon, $year) = localtime();
+	$year += 1900;
+	$mon  += 1;
+	my $start = sprintf('%04d-%02d-01 00:00:00', $year, $mon);
+	my $end   = sprintf('%04d-%02d-%02d 23:59:59', $year, $mon, $mday);
+	my $api = make_management_api($mgmt);
+	my $res = $api->usage_analytics($team_id, {
+		timeRange => {
+			startTime => $start,
+			endTime   => $end,
+			timezone  => 'Etc/GMT',
+		},
+		timeUnit => 'TIME_UNIT_NONE',
+		values   => [ { name => 'usd', aggregation => 'AGGREGATION_SUM' } ],
+		groupBy  => ['description'],
+		filters  => [],
+	});
+	xaictl::Management::Report->emit_usage(
+		$kv,
+		team_id   => $team_id,
+		start     => $start,
+		end       => $end,
+		analytics => $res,
+		no_note   => 1,
+	);
+}
+
+sub emit_limits {
+	my ($kv) = @_;
+	my $mgmt = management_key();
+	die "No management key: set XAI_MANAGEMENT_API_KEY or add management_key= to [$opt_mgmt_sec] in $opt_config\n"
+		unless defined $mgmt && $mgmt ne '';
+	my $bearer = inference_bearer();
+	my $team_id = team_id_for_mgmt($bearer);
+	my $api     = make_management_api($mgmt);
+	my $lim     = $api->spending_limits($team_id);
+	xaictl::Management::Report->emit_limits(
+		$kv,
+		team_id => $team_id,
+		limits  => $lim,
+		no_note => 1,
+	);
+}
+
+sub emit_probe {
+	my ($kv) = @_;
+	my $mgmt = management_key();
+	die "No management key: set XAI_MANAGEMENT_API_KEY or add management_key= to [$opt_mgmt_sec] in $opt_config\n"
+		unless defined $mgmt && $mgmt ne '';
+	my $bearer = inference_bearer();
+	my $team_id = team_id_for_mgmt($bearer);
+	my $api     = make_management_api($mgmt);
+	my $results = xaictl::Management::Probe->probe_readonly(
+		api     => $api,
+		team_id => $team_id,
+	);
+	xaictl::Management::Probe->emit_report($kv, $results, team_id => $team_id);
+}
+
+sub emit_buildlog {
+	my ($kv) = @_;
+	my $session_id = resolve_session_id();
+	die "buildlog requires -S <session_id> or --current\n"
+		unless defined $session_id && $session_id ne '';
+	my $log_path = $opt_log_file // xaictl::BuildLog->default_log_path();
+	my ($turns, $totals) = xaictl::BuildLog->scan_log(
+		log_path   => $log_path,
+		session_id => $session_id,
+	);
+	xaictl::BuildLog->emit_report(
+		$kv,
+		session_id => $session_id,
+		log_path   => $log_path,
+		turns      => $turns,
+		totals     => $totals,
+	);
+}
+
+sub emit_signals {
+	my ($kv) = @_;
+	my $session_id = resolve_session_id();
+	die "signals requires -S <session_id> or --current\n"
+		unless defined $session_id && $session_id ne '';
+	my ($data, $path) = xaictl::Harness::Signals->read_signals($session_id);
+	die "No signals.json found for session $session_id\n" unless defined $data;
+	xaictl::Harness::Signals->emit_report(
+		$kv, $data,
+		session_id => $session_id,
+		path       => $path,
+	);
+}
+
+# ===========================================================================
+# Explicit verbs (token-burning or subcommands)
+# ===========================================================================
+sub run_explicit {
+	my ($verb, $kv, @rest) = @_;
+	if ($verb eq 'query') {
+		run_query($kv);
+	} elsif ($verb eq 'session') {
+		run_session($kv);
+	} elsif ($verb eq 'data') {
+		run_data($kv, @rest);
+	} elsif ($verb eq 'probe') {
+		emit_probe($kv);
+	} else {
+		die "unknown explicit action '$verb'\n";
+	}
+}
+
+sub read_single_query {
+	if (@opt_queries) {
+		return $opt_queries[0];
+	}
+	if (!@ARGV && -t STDIN) {
+		die "query requires -Q/--query or stdin\n";
+	}
+	local $/;
+	my $text = <STDIN>;
+	$text //= '';
+	$text =~ s/\s+\z//;
+	die "empty query\n" if $text eq '';
+	return $text;
+}
+
+sub read_session_queries {
+	my @queries = @opt_queries;
+	if (!@queries && (!@ARGV || -t STDIN)) {
+		die "session requires --queries (repeatable) or one query per stdin line\n";
+	}
+	if (!@queries) {
+		while (my $line = <STDIN>) {
+			chomp $line;
+			next if $line =~ /^\s*$/;
+			push @queries, $line;
+		}
+	}
+	die "session requires at least 2 queries\n" if @queries < 2;
+	return @queries;
+}
+
+sub run_one_query {
+	my ($kv, $api, $query, $index) = @_;
+	my $start = [gettimeofday];
+	my $res;
+	eval { $res = $api->query_grok($query); };
+	if ($@) {
+		my $err = $@;
+		$err =~ s/\s+\z//;
+		die "Rate limit (429): $err\n" if $err =~ /429/;
+		die "Query failed: $err\n";
+	}
+	my $elapsed = tv_interval($start, [gettimeofday]);
+	my $usage   = xaictl::Stats->usage_from_response($res);
+	my $text    = xaictl::Stats->response_text($res);
+	my $p       = "query.$index";
+	$kv->kv("$p.elapsed_secs", sprintf('%.4f', $elapsed));
+	$kv->kv("$p.prompt", $query);
+	$kv->kv("$p.response", $text) if defined $text && $text ne '';
+	$kv->kv("$p.usage.prompt_tokens",     $usage->{prompt_tokens});
+	$kv->kv("$p.usage.completion_tokens", $usage->{completion_tokens});
+	$kv->kv("$p.usage.total_tokens",      $usage->{total_tokens});
+	$kv->kv("$p.usage.cost_in_usd_ticks", $usage->{cost_in_usd_ticks});
+	$kv->kv("$p.usage.cost_usd",
+		sprintf('%.8f', xaictl::Stats->ticks_to_usd($usage->{cost_in_usd_ticks} // 0)));
+	return $usage;
+}
+
+sub run_query {
+	my ($kv) = @_;
+	my $bearer = inference_bearer();
+	die "No bearer token: set XAI_API_KEY or add bearer= to [$opt_cfg_sec] in $opt_config\n"
+		unless defined $bearer && $bearer ne '';
+	my $api = make_inference_api($bearer);
+	run_one_query($kv, $api, read_single_query(), 1);
+}
+
+sub run_session {
+	my ($kv) = @_;
+	my $bearer = inference_bearer();
+	die "No bearer token: set XAI_API_KEY or add bearer= to [$opt_cfg_sec] in $opt_config\n"
+		unless defined $bearer && $bearer ne '';
+	my $api    = make_inference_api($bearer);
+	my $totals = xaictl::Stats->empty_totals();
+	my @queries = read_session_queries();
+	my $n = 0;
+	for my $query (@queries) {
+		$n++;
+		my $usage = run_one_query($kv, $api, $query, $n);
+		xaictl::Stats->accumulate($totals, $usage);
+	}
+	$kv->kv('session.queries', $n);
+	$kv->kv('session.usage.prompt_tokens',     $totals->{prompt_tokens});
+	$kv->kv('session.usage.completion_tokens', $totals->{completion_tokens});
+	$kv->kv('session.usage.total_tokens',      $totals->{total_tokens});
+	$kv->kv('session.usage.cost_in_usd_ticks', $totals->{cost_in_usd_ticks});
+	$kv->kv('session.usage.cost_usd',
+		sprintf('%.8f', xaictl::Stats->ticks_to_usd($totals->{cost_in_usd_ticks} // 0)));
+	$kv->kv('session.usage.query_count', $totals->{query_count});
+}
+
+sub run_data {
+	my ($kv, @argv) = @_;
+	my $mgmt = management_key();
+	die "No management key: set XAI_MANAGEMENT_API_KEY or add management_key= to [$opt_mgmt_sec] in $opt_config\n"
+		unless defined $mgmt && $mgmt ne '';
+
+	my $cmd   = 'ls';
+	my $store = 'Files';
+	my $id;
+	if (@argv >= 1 && $argv[0] =~ /^(ls|lsl|cat|size)$/i) {
+		$cmd   = lc $argv[0];
+		$store = $argv[1] if @argv >= 2;
+		$id    = $argv[2] if @argv >= 3;
+	} elsif (@argv >= 1) {
+		$store = $argv[0];
+		$id    = $argv[1] if @argv >= 2;
+	}
+	die "data cat requires: xaictl data cat <store> <id>\n"
+		if $cmd eq 'cat' && (!defined $id || $id eq '');
+
+	my $api = make_management_api($mgmt);
+	if ($cmd eq 'cat') {
+		my $result = xaictl::Management::Data->get_item(
+			api => $api, store => $store, id => $id,
+		);
+		# Metadata as sysctl; body raw on stdout after a blank line marker.
+		$kv->kv('xai.mgmt.data.cmd', 'cat');
+		$kv->kv('xai.mgmt.data.store', xaictl::Management::Data->normalize_store($store));
+		$kv->kv('xai.mgmt.data.id', $id);
+		$kv->kv('xai.mgmt.data.path', $result->{path});
+		$kv->kv('xai.mgmt.data.type', $result->{type});
+		if (($result->{type} // '') eq 'content') {
+			my $raw = $result->{bytes} // '';
+			$kv->kv('xai.mgmt.data.bytes', length($raw));
+			$kv->print_all();
+			$kv->clear();
+			if ($raw =~ /[^\x09\x0a\x0d\x20-\x7e]/) {
+				print "# binary content (" . length($raw) . " bytes)\n";
+			} else {
+				print $raw;
+				print "\n" unless $raw =~ /\n\z/;
+			}
+			return;
+		}
+		$kv->print_all();
+		$kv->clear();
+		print xaictl::Management::Data->format_cat($result);
+		return;
+	}
+
+	my ($items) = xaictl::Management::Data->list_items(api => $api, store => $store);
+	$store = xaictl::Management::Data->normalize_store($store);
+	$kv->kv('xai.mgmt.data.cmd', $cmd);
+	if ($cmd eq 'size') {
+		xaictl::Management::Data->emit_size($kv, $items, $store);
+	} else {
+		xaictl::Management::Data->emit_list($kv, $items, $store, long => ($cmd eq 'lsl'));
+	}
+}
+
+# ===========================================================================
+# Usage
+# ===========================================================================
+sub usage {
+	my ($code) = @_;
+	print <<'EOF';
+Usage: xaictl [options] [prefix ...]
+       xaictl query -Q TEXT
+       xaictl session --queries TEXT --queries TEXT
+       xaictl data ls|lsl|cat|size [store] [id]
+
+Dump xAI / Grok Build / developer-API status as sysctl-style key=value
+lines. Bare invocation and -a dump every read-only tree the current
+credentials can satisfy. Prefixes select trees (repeatable):
+
+  xaictl
+  xaictl -a
+  xaictl xai.credits xai.mgmt.balance
+  xaictl keyinfo
+  xaictl keyinfo.team_id
+
+Sections (see -l):
+  xai.auth xai.user xai.subscription xai.credits xai.billing_legacy
+  xai.autotopup xai.settings xai.models xai.history
+  keyinfo
+  xai.mgmt.balance xai.mgmt.usage xai.mgmt.limits xai.mgmt.probe
+  xai.buildlog xai.signals
+  query / session   (explicit; burns inference tokens)
+  data              (explicit; ls/lsl/size as keys, cat body raw)
+
+Options:
+  -a, --all              Dump default read-only trees (implied if no prefix)
+  -s, --section NAME     Extra section/prefix (alias for a positional prefix)
+  -r, --refresh          Force OIDC refresh (writes ~/.grok/auth.json)
+      --no-refresh       Never call the IdP / never rewrite auth.json
+      --refresh-only     Refresh or adopt sibling token, print refresh keys, exit
+      --auth PATH        Path to auth.json (default: ~/.grok/auth.json)
+  -b, --base URL         cli-chat-proxy base
+  -t, --timeout SECS     HTTP timeout (default: 20)
+  -j, --json             Also emit compact raw JSON per proxy section
+      --history-max-sessions N
+                         Cap per-session dump under history (default 200)
+  -c, --config FILE      Developer-API config (default: ~/.config/cxai/grok.conf)
+      --config-section S Config section for inference bearer (default: creds)
+      --mgmt-section S   Config section for management key (default: mgmt)
+  -m, --model MODEL      Model for query/session
+  -M, --management KEY   Management API key (or XAI_MANAGEMENT_API_KEY)
+  -T, --team-id ID       Team ID for management trees
+  -Q, --query TEXT       Query text for `xaictl query`
+      --queries TEXT     Repeatable query text for `xaictl session`
+  -S, --session-id ID    Grok Build session id for buildlog/signals
+      --log-file PATH    unified.jsonl path
+      --current          Active session from ~/.grok/active_sessions.json
+  -d, --debug            Verbose developer-API debug
+  -l, --list             List section names and exit
+  -h, --help             This help
+
+query and session are never included in -a. history, probe, data, buildlog,
+and signals are opt-in via prefix (buildlog/signals also need -S/--current).
+
+Environment:
+  XAI_API_KEY              Inference API bearer
+  XAI_MANAGEMENT_API_KEY   Management API key
+  GROK_HOME, GROK_AUTH_PATH, XAI_STATUS_AUTH
+  GROK_CLI_CHAT_PROXY_BASE_URL, GROK_PRODUCTION_CLI_CHAT_PROXY_BASE_URL
+
+Examples:
+  xaictl | grep '^xai.credits'
+  xaictl xai.credits xai.mgmt.balance
+  xaictl keyinfo
+  xaictl query -Q "Say only hello."
+  xaictl xai.buildlog --current
+  xaictl --refresh-only
+  xaictl --no-refresh xai.history
+EOF
+	exit($code // 0);
+}

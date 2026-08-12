@@ -8,9 +8,9 @@ use FindBin qw($Bin);
 use lib "$Bin/../lib";
 use lib "$Bin/../../xAI-API/lib";
 
-use GrokAPI::Management::Report;
+use xaictl::Management::Report;
 
-my $class = 'GrokAPI::Management::Report';
+my $class = 'xaictl::Management::Report';
 
 my $balance = {
 	total => { val => '-1000' },
@@ -37,9 +37,9 @@ my $bal_out = $class->format_balance(
 	balance => $balance,
 	preview => $preview,
 );
-like($bal_out, qr/prepaid_total_cents: -1000/, 'balance cents');
-like($bal_out, qr/prepaid_total_usd:\s+\$-10\.00/, 'balance usd');
-like($bal_out, qr/recent_changes/, 'balance changes');
+like($bal_out, qr/xai\.mgmt\.balance\.prepaid_total_cents=-1000/, 'balance cents');
+like($bal_out, qr/xai\.mgmt\.balance\.prepaid_total_usd=-10\.00/, 'balance usd');
+like($bal_out, qr/xai\.mgmt\.balance\.changes\.count=/, 'balance changes');
 
 my $usage_out = $class->format_usage(
 	team_id   => 'team-1',
@@ -55,7 +55,7 @@ my $usage_out = $class->format_usage(
 	},
 );
 like($usage_out, qr/Chat grok-4-0709/, 'usage label');
-like($usage_out, qr/total_usd_this_period: \$0\.759737/, 'usage total');
+like($usage_out, qr/xai\.mgmt\.usage\.total_usd=0\.759737/, 'usage total');
 
 my $lim_out = $class->format_limits(
 	team_id => 'team-1',
@@ -66,6 +66,6 @@ my $lim_out = $class->format_limits(
 		},
 	},
 );
-like($lim_out, qr/softSl:.*usd=\$200\.00/, 'limits softSl');
+like($lim_out, qr/xai\.mgmt\.limits\.soft_sl\.usd=200\.00/, 'limits softSl');
 
 done_testing();

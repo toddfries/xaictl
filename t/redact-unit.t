@@ -7,9 +7,9 @@ use Test::More tests => 4;
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
-use GrokAPI::Evidence::Redact;
+use xaictl::Evidence::Redact;
 
-my $class = 'GrokAPI::Evidence::Redact';
+my $class = 'xaictl::Evidence::Redact';
 my $secret = 'bearer = xai-fake-inference-key-for-unit-test';
 my $clean  = $class->redact_text($secret);
 

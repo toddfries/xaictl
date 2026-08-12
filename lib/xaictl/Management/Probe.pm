@@ -1,4 +1,4 @@
-package GrokAPI::Management::Probe;
+package xaictl::Management::Probe;
 
 use strict;
 use warnings;
@@ -230,40 +230,55 @@ sub _short {
 
 sub format_report {
 	my ($class, $results, %args) = @_;
+	require xaictl::Kv;
+	my $kv = xaictl::Kv->new;
+	$class->emit_report($kv, $results, %args);
+	return $kv->as_string();
+}
+
+sub emit_report {
+	my ($class, $kv, $results, %args) = @_;
 	$results //= [];
 	my $catalog = $class->endpoint_catalog();
-	my @out;
+	my $p = $args{prefix} // 'xai.mgmt.probe';
 
-	push @out, '=== Management API readonly probe ===';
-	push @out, sprintf('team_id: %s', $args{team_id} // '(none)');
-	push @out, sprintf('probed:  %s', scalar localtime);
-	push @out, '';
+	$kv->kv("$p.team_id", $args{team_id});
+	$kv->kv("$p.probed", scalar localtime);
 
 	my ($ok_n, $deny_n, $err_n) = (0, 0, 0);
-	for my $r (@{$results}) {
-		my $flag = $r->{ok} ? 'OK' : ($r->{status} == 403 ? 'DENIED' : 'FAIL');
+	$kv->kv("$p.count", scalar @{$results});
+	for my $i (0 .. $#{$results}) {
+		my $r = $results->[$i];
 		$ok_n++   if $r->{ok};
 		$deny_n++ if !$r->{ok} && ($r->{status} // 0) == 403;
 		$err_n++  if !$r->{ok} && ($r->{status} // 0) != 403;
-		push @out, sprintf(
-			'%-22s %-4s %3s  %s',
-			$r->{id}, $r->{method}, $r->{status} // '?', $r->{summary} // $r->{error} // '',
-		);
+		my $rp = "$p.$i";
+		$kv->kv("$rp.id",       $r->{id});
+		$kv->kv("$rp.method",   $r->{method});
+		$kv->kv("$rp.status",   $r->{status});
+		$kv->kv("$rp.ok",       $r->{ok} ? 'true' : 'false');
+		$kv->kv("$rp.path",     $r->{path});
+		$kv->kv("$rp.summary",  $r->{summary});
+		$kv->kv("$rp.error",    $r->{error}) if defined $r->{error};
+		my $id = $r->{id} // "idx$i";
+		$id =~ s/[^A-Za-z0-9_]+/_/g;
+		$kv->kv("$p.by_id.$id.status", $r->{status});
+		$kv->kv("$p.by_id.$id.ok",     $r->{ok} ? 'true' : 'false');
 	}
+	$kv->kv("$p.summary.ok",      $ok_n);
+	$kv->kv("$p.summary.denied",  $deny_n);
+	$kv->kv("$p.summary.errors",  $err_n);
 
-	push @out, '';
-	push @out, sprintf('summary: %d ok, %d denied (403), %d other errors', $ok_n, $deny_n, $err_n);
-	push @out, '';
-	push @out, '=== Write-capable endpoints (NOT probed; need explicit write ACL) ===';
-	for my $w (@{$catalog->{write_capable}}) {
-		push @out, sprintf('  %-22s %-6s %s', $w->{id}, $w->{method}, $w->{path});
+	my @write = @{ $catalog->{write_capable} };
+	$kv->kv("$p.write_capable.count", scalar @write);
+	for my $i (0 .. $#write) {
+		$kv->kv("$p.write_capable.$i.id",     $write[$i]{id});
+		$kv->kv("$p.write_capable.$i.method", $write[$i]{method});
+		$kv->kv("$p.write_capable.$i.path",   $write[$i]{path});
 	}
-	push @out, '';
-	push @out, 'SuperGrok consumer quota (90% email) is NOT in Management API.';
-	push @out, 'Grok Build tokens: grok-sanity -a buildlog --current';
-	push @out, '';
-
-	return join "\n", @out;
+	$kv->kv("$p.note",
+		'SuperGrok consumer quota (90% email) is NOT in Management API. Grok Build tokens: xaictl xai.buildlog --current');
+	return $kv;
 }
 
 1;

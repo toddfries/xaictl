@@ -8,7 +8,7 @@ use FindBin qw($Bin);
 use lib "$Bin/../lib";
 
 use JSON;
-use GrokAPI::Management::Report;
+use xaictl::Management::Report;
 
 my $fixture_path = "$Bin/fixtures/quota-probe.json";
 open my $fh, '<', $fixture_path or die "missing $fixture_path: $!\n";
@@ -23,7 +23,7 @@ for my $ep (@{$probe->{endpoints}}) {
 	ok($status == 401 || $status == 404, "no consumer quota API at $ep->{url} ($status)");
 }
 
-my $note = GrokAPI::Management::Report->format_limits_note();
+my $note = xaictl::Management::Report->format_limits_note();
 like($note, qr/SuperGrok/i, 'documents SuperGrok');
 like($note, qr/90%/i, 'documents 90% email quota gap');
 like($note, qr/NOT in this API/i, 'states quota not in dev API');
