@@ -16,6 +16,7 @@ sub new {
 	return bless {
 		lines    => [],
 		json_raw => $args{json_raw} ? 1 : 0,
+		no_name  => $args{no_name}  ? 1 : 0,
 	}, $class;
 }
 
@@ -23,6 +24,12 @@ sub json_raw {
 	my ($self, $on) = @_;
 	$self->{json_raw} = $on ? 1 : 0 if defined $on;
 	return $self->{json_raw};
+}
+
+sub no_name {
+	my ($self, $on) = @_;
+	$self->{no_name} = $on ? 1 : 0 if defined $on;
+	return $self->{no_name};
 }
 
 sub lines {
@@ -99,7 +106,19 @@ sub dump_raw {
 
 sub as_string {
 	my ($self) = @_;
-	return join("\n", @{ $self->{lines} }, '');
+	my @out = @{ $self->{lines} };
+	if ($self->{no_name}) {
+		@out = map { _value_only($_) } @out;
+	}
+	return join("\n", @out, '');
+}
+
+sub _value_only {
+	my ($line) = @_;
+	return $line unless defined $line;
+	# First '=' separates key from value (values may contain '=').
+	return $1 if $line =~ /^[^=]+=(.*)\z/s;
+	return $line;
 }
 
 sub print_all {

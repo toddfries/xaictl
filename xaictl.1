@@ -11,7 +11,7 @@
 .Nd dump xAI / Grok Build / developer-API status as sysctl-style key/value lines
 .Sh SYNOPSIS
 .Nm
-.Op Fl ajlr
+.Op Fl ajlnr
 .Op Fl b Ar url
 .Op Fl c Ar file
 .Op Fl m Ar model
@@ -54,6 +54,10 @@ suitable for
 .Xr grep 1
 or
 .Xr awk 1 .
+.Fl n
+prints only the value, like
+.Xr sysctl 8
+.Fl n .
 .Pp
 With no arguments, or with
 .Fl a ,
@@ -120,6 +124,10 @@ Bearer and refresh tokens are never printed.
 .It Fl a , Fl -all
 Dump every default read-only tree.
 Implied when no prefix is given.
+.It Fl n , Fl -no-name
+Suppress the key name.
+Each line is the value only
+.Pq same as Ic sysctl Fl n .
 .It Fl s Ar name , Fl -section Ar name
 Extra section or prefix.
 Prefer positional prefixes;
@@ -411,6 +419,13 @@ A default dump that skips trees for missing credentials still exits 0.
 Show remaining weekly allowance and prepaid dollars:
 .Bd -literal -offset indent
 xaictl xai.credits | egrep 'usage|remaining|prepaid|period\\.(start|end)='
+.Ed
+.Pp
+Value only, like
+.Xr sysctl 8
+.Fl n :
+.Bd -literal -offset indent
+xaictl -n xai.credits.prepaid_balance_usd
 .Ed
 .Pp
 Developer key plus management prepaid:

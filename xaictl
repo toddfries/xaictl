@@ -80,6 +80,7 @@ my %ALIAS = (
 my $opt_all      = 0;
 my @opt_sections;
 my $opt_json     = 0;
+my $opt_no_name  = 0;
 my $opt_auth;
 my $opt_base;
 my $opt_timeout  = 20;
@@ -107,6 +108,7 @@ GetOptions(
 	'all|a'          => \$opt_all,
 	'section|s=s@'   => \@opt_sections,
 	'json|j'         => \$opt_json,
+	'n|no-name'      => \$opt_no_name,
 	'auth=s'         => \$opt_auth,
 	'base|b=s'       => \$opt_base,
 	'timeout|t=i'    => \$opt_timeout,
@@ -155,7 +157,7 @@ if (@selectors && $selectors[0] =~ /^(query|session|data|mgmt-probe|probe)$/i) {
 	}
 }
 
-my $kv = xaictl::Kv->new(json_raw => $opt_json);
+my $kv = xaictl::Kv->new(json_raw => $opt_json, no_name => $opt_no_name);
 
 if ($refresh_only) {
 	eval {
@@ -704,6 +706,7 @@ credentials can satisfy. Prefixes select trees (repeatable):
   xaictl xai.credits xai.mgmt.balance
   xaictl keyinfo
   xaictl keyinfo.team_id
+  xaictl -n xai.credits.prepaid_balance_usd
 
 Sections (see -l):
   xai.auth xai.user xai.subscription xai.credits xai.billing_legacy
@@ -716,6 +719,7 @@ Sections (see -l):
 
 Options:
   -a, --all              Dump default read-only trees (implied if no prefix)
+  -n, --no-name          Print values only (sysctl -n; no key= prefix)
   -s, --section NAME     Extra section/prefix (alias for a positional prefix)
   -r, --refresh          Force OIDC refresh (writes ~/.grok/auth.json)
       --no-refresh       Never call the IdP / never rewrite auth.json
@@ -752,6 +756,7 @@ Environment:
 
 Examples:
   xaictl | grep '^xai.credits'
+  xaictl -n xai.credits.prepaid_balance_usd
   xaictl xai.credits xai.mgmt.balance
   xaictl keyinfo
   xaictl query -Q "Say only hello."
