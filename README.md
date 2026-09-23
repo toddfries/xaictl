@@ -36,7 +36,7 @@ Don't get excited if you want token counts; I believe that's not available.
 - **%** – Free pool usage (with timing)
 - **$** – Credits left (`$0.00` means you've used them all or haven't purchased any)
 
-See [EXAMPLE.md](EXAMPLE.md) for examples.
+See [EXAMPLES.md](EXAMPLES.md) for examples.
 
 ---
 
