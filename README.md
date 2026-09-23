@@ -1,31 +1,44 @@
 # xaictl
-``
+
+> x.AI sysctl-like output for API metrics
+
+```
 Subject: xaictl - x.AI sysctl like output for API metrics
 From: Todd T. Fries <todd@fries.net>
 To: anyone reading this
 ```
 
-I got tired of browsing to get my api info so I comissioned this from grok-build.
+I got tired of browsing to get my API info so I commissioned this from grok-build.
 
 It even looked into its own code for some of this.
 
-Becuase of that, you can set a normal key and  a management key in, by default:
+Because of that, you can set a normal key and a management key in, by default:
 
-  ~/.config/cxai/grok.conf (standard ini format,
-     [mgmt] section with 'bearer = xai-token-...'
-     [creds] section with 'xai-....'
+```ini
+# ~/.config/cxai/grok.conf
+[mgmt]
+bearer = xai-token-...
+
+[creds]
+xai-...
+```
 
 You can also check on grok build token pool that gets its auth from:
- $HOME/.grok/auth.json (obeys GROK_BUILD_HOME, see the man page)
 
-Don't get excited if you want token counts, I believe that's not available.
+```bash
+$HOME/.grok/auth.json  # obeys GROK_BUILD_HOME, see the man page
+```
 
-What it will give you is:
- - % for free pool (with timinig)
- - $ for credits left ($0.00 means you've used them all or haven't purchased any, same effect)
+Don't get excited if you want token counts; I believe that's not available.
 
+## What it provides
 
-See EXAMPLE.md for some examples.
+- **%** – Free pool usage (with timing)
+- **$** – Credits left (`$0.00` means you've used them all or haven't purchased any)
+
+See [EXAMPLE.md](EXAMPLE.md) for examples.
+
+---
 
 ```
 --
