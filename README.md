@@ -1,12 +1,12 @@
-# xaictl
-
-> x.AI sysctl-like output for API metrics
-
 ```
 Subject: xaictl - x.AI sysctl like output for API metrics
 From: Todd T. Fries <todd@fries.net>
 To: anyone reading this
 ```
+# xaictl
+
+> x.AI sysctl-like output for API metrics
+
 
 I got tired of browsing to get my API info so I commissioned this from grok-build.
 
